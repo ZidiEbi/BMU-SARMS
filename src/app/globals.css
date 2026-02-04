@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/* 🔑 Tell Tailwind where to scan */
+@source "./src/app/**/*.{js,ts,jsx,tsx}";
+@source "./src/components/**/*.{js,ts,jsx,tsx}";
+@source "./src/actions/**/*.{js,ts}";
+
+/* Design tokens */
+:root {
+  --background: #ffffff;
+  --foreground: #0f172a; /* slate-900 */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #020617; /* slate-950 */
+    --foreground: #e5e7eb; /* gray-200 */
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
