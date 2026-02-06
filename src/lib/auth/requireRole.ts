@@ -1,11 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
-export default async function RegistryLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export async function requireRole(allowedRoles: string[]) {
   const supabase = await createSupabaseServerClient()
 
   const {
@@ -16,19 +12,22 @@ export default async function RegistryLayout({
     redirect('/auth/login')
   }
 
-  const { data: profile } = await supabase
+  const { data: profile, error } = await supabase
     .from('profiles')
     .select('role')
     .eq('id', user.id)
     .single()
 
-  if (profile?.role !== 'REGISTRY') {
-    redirect('/dashboard')
+  if (error || !profile) {
+    redirect('/auth/login')
   }
 
-  return (
-    <div className="min-h-screen bg-background text-foreground">
-      {children}
-    </div>
-  )
+  if (!allowedRoles.includes(profile.role)) {
+    redirect('/unauthorized')
+  }
+
+  return {
+    user,
+    role: profile.role,
+  }
 }

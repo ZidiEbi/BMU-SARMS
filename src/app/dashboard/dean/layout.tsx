@@ -22,13 +22,9 @@ export default async function RegistryLayout({
     .eq('id', user.id)
     .single()
 
-  if (profile?.role !== 'REGISTRY') {
+  if (profile?.role !== 'DEAN') {
     redirect('/dashboard')
   }
 
-  return (
-    <div className="min-h-screen bg-background text-foreground">
-      {children}
-    </div>
-  )
+  return <>{children}</>
 }

@@ -12,25 +12,31 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
 
   async function handleLogin(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
+  e.preventDefault()
+  setLoading(true)
+  setError(null)
 
-    const supabase = createSupabaseBrowserClient()
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    })
+  const supabase = createSupabaseBrowserClient()
 
-    setLoading(false)
+  const { error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+    options: {
+      redirectTo: `${location.origin}/auth/callback`,
+    },
+  })
 
-    if (error) {
-      setError(error.message)
-      return
-    }
+  setLoading(false)
 
-    router.push('/dashboard')
+  if (error) {
+    setError(error.message)
+    return
   }
+
+  // ❌ DO NOT router.push here
+  // Supabase will redirect to /auth/callback
+}
+
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-bmu-primary to-bmu-secondary">
