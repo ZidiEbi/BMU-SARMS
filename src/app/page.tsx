@@ -13,7 +13,7 @@ export default function HomePage() {
         </h1>
 
         <p className="relative z-10 mt-4 max-w-2xl text-lg text-foreground/70">
-          Secure Academic Records & Management System  
+          Secure Academic Records & Management System
           <span className="block mt-1 text-sm uppercase tracking-wider text-bmu-green">
             Registry · Lecturers · HODs · Deans
           </span>
@@ -32,6 +32,10 @@ export default function HomePage() {
             className="rounded-xl border border-bmu-border bg-bmu-surface px-6 py-3 font-medium hover:bg-bmu-surface/80 transition"
           >
             Sign In
+          </a>
+
+          <a href="/auth/signup" className="underline">
+            Create account
           </a>
         </div>
       </section>
@@ -63,9 +67,7 @@ export default function HomePage() {
               <div
                 className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${item.accent}`}
               />
-              <h3 className="relative text-xl font-semibold">
-                {item.title}
-              </h3>
+              <h3 className="relative text-xl font-semibold">{item.title}</h3>
               <p className="relative mt-2 text-sm text-foreground/70">
                 {item.desc}
               </p>
@@ -76,7 +78,8 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="border-t border-bmu-border py-6 text-center text-sm text-foreground/50">
-        © {new Date().getFullYear()} Bayelsa Medical University · Yenagoa, Bayelsa State
+        © {new Date().getFullYear()} Bayelsa Medical University · Yenagoa,
+        Bayelsa State
       </footer>
     </main>
   );
