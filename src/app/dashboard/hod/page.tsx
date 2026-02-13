@@ -1,85 +1,160 @@
-'use client'
-import React, { useState } from 'react';
-import { 
-  ShieldCheck, 
-  Users, 
-  BookPlus, 
-  ClipboardCheck, 
-  UserPlus,
-  LayoutDashboard,
-  Search,
-  Filter
-} from 'lucide-react';
-import CourseAssignmentTable from '@/components/CourseAssignmentTable';
-import ApprovalQueue from '@/components/ApprovalQueue';
+import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { getHODStats } from '@/lib/data/stats'
+import StatCard from '@/components/dashboard/StatCard'
+import AssignCourse from '@/components/dashboard/hod/AssignCourse'
+import DeleteAssignmentBtn from '@/components/dashboard/hod/DeleteAssignmentBtn'
+import { Users, BookOpen, Fingerprint, ShieldAlert, GraduationCap } from 'lucide-react'
 
-export default function HODDashboard() {
-  const [activeTab, setActiveTab] = useState<'approvals' | 'assignments'>('approvals');
+export default async function HODDashboard() {
+  const supabase = await createSupabaseServerClient()
+  
+  // 1. Identify the HOD's Identity & Department
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('department, full_name')
+    .eq('id', user?.id)
+    .single()
+
+  // 2. Security Check: Block access if department isn't assigned
+  if (!profile?.department) {
+    return (
+      <div className="bg-amber-50 p-10 rounded-[2.5rem] border border-amber-100 flex flex-col items-center text-center">
+        <div className="bg-amber-100 p-4 rounded-full mb-4">
+          <ShieldAlert className="text-amber-600" size={32} />
+        </div>
+        <h3 className="text-amber-900 font-black text-xl">Department Unassigned</h3>
+        <p className="text-amber-700 max-w-md mt-2">
+          Your account is verified as an HOD, but you haven't been assigned to a department yet. 
+          Please contact the <strong>Super Admin</strong> to complete your setup.
+        </p>
+      </div>
+    )
+  }
+
+  // 3. Parallel Data Fetching
+  const [stats, lecturersRes, assignmentsRes] = await Promise.all([
+    getHODStats(profile.department),
+    
+    // FETCH ALL LECTURERS: Allows inter-departmental assignments
+    supabase
+      .from('profiles')
+      .select('id, full_name, department')
+      .eq('role', 'lecturer')
+      .order('full_name'),
+
+    // FETCH ASSIGNMENTS: Only for THIS HOD's department
+    supabase
+      .from('course_assignments')
+      .select('*, profiles(full_name, department)')
+      .eq('department', profile.department)
+      .order('created_at', { ascending: false })
+  ])
+
+  const lecturers = lecturersRes.data || []
+  const assignments = assignmentsRes.data || []
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8">
-      {/* Header with Departmental Identity */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+    <div className="space-y-8">
+      {/* Header Section */}
+      <div className="flex items-center justify-between">
         <div>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="bg-teal-600 text-[10px] font-black text-white px-2 py-1 rounded-md uppercase tracking-tighter">HOD Terminal</span>
-            <span className="text-slate-300">/</span>
-            <span className="text-slate-500 text-xs font-bold uppercase">Optometry Department</span>
+          <div className="flex items-center gap-2 mb-1">
+            <Fingerprint size={14} className="text-bmu-maroon" />
+            <span className="text-[10px] font-black text-bmu-maroon uppercase tracking-widest">Academic Administration</span>
           </div>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tight italic">Administrative Oversight</h1>
+          <h1 className="text-4xl font-black text-slate-900 tracking-tight lowercase first-letter:uppercase">
+            Dept. of {profile.department}
+          </h1>
         </div>
-
-        {/* Action Buttons */}
-        <div className="flex gap-3">
-          <button className="bg-white border-2 border-slate-100 text-slate-600 px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-2">
-            <UserPlus className="w-4 h-4" />
-            Add Lecturer
-          </button>
-          <button className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-teal-600 transition-all shadow-xl shadow-slate-200 flex items-center gap-2">
-            <BookPlus className="w-4 h-4" />
-            New Course
-          </button>
+        
+        <div className="hidden lg:block text-right">
+           <p className="text-xs font-bold text-slate-400 uppercase tracking-tighter">Authorized HOD</p>
+           <p className="text-sm font-black text-bmu-blue uppercase">{profile.full_name}</p>
         </div>
       </div>
 
-      {/* Analytics Mini-Bar */}
+      {/* Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="p-4 bg-amber-50 rounded-2xl text-amber-600"><ClipboardCheck className="w-6 h-6" /></div>
-          <div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pending Approvals</p>
-            <p className="text-2xl font-black text-slate-800">12</p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="p-4 bg-teal-50 rounded-2xl text-teal-600"><Users className="w-6 h-6" /></div>
-          <div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Staff Count</p>
-            <p className="text-2xl font-black text-slate-800">08</p>
-          </div>
-        </div>
+        <StatCard 
+          title="Student Population" 
+          value={stats.studentCount} 
+          icon={Users} 
+          trend="Live" 
+          color="blue" 
+        />
+        <StatCard 
+          title="Department Faculty" 
+          value={stats.lecturerCount} 
+          icon={GraduationCap} 
+          trend="Verified" 
+          color="maroon" 
+        />
+        <StatCard 
+          title="Active Modules" 
+          value={assignments.length} 
+          icon={BookOpen} 
+          trend="Semester 1" 
+          color="green" 
+        />
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex gap-8 border-b border-slate-200">
-        <button 
-          onClick={() => setActiveTab('approvals')}
-          className={`pb-4 text-xs font-black uppercase tracking-[0.2em] transition-all ${activeTab === 'approvals' ? 'text-teal-600 border-b-4 border-teal-600' : 'text-slate-400 border-b-4 border-transparent hover:text-slate-600'}`}
-        >
-          Enrollment Approvals
-        </button>
-        <button 
-          onClick={() => setActiveTab('assignments')}
-          className={`pb-4 text-xs font-black uppercase tracking-[0.2em] transition-all ${activeTab === 'assignments' ? 'text-teal-600 border-b-4 border-teal-600' : 'text-slate-400 border-b-4 border-transparent hover:text-slate-600'}`}
-        >
-          Course Assignments
-        </button>
-      </div>
+      {/* 1. Assignment Tool: Now receives the "Global" lecturer list */}
+      <AssignCourse lecturers={lecturers} department={profile.department} />
 
-      {/* Tab Content */}
-      <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-        {activeTab === 'approvals' ? <ApprovalQueue /> : <CourseAssignmentTable />}
+      {/* 2. Course Assignment List */}
+      <div className="bg-white rounded-[2.5rem] p-10 border border-slate-100 shadow-medical">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h4 className="font-bold text-slate-900 text-lg">Course Allocation Log</h4>
+            <p className="text-xs text-slate-400 font-medium mt-1">Modules currently assigned to lecturers for this department</p>
+          </div>
+          <span className="px-4 py-2 bg-bmu-blue/5 text-bmu-blue text-[10px] font-black rounded-xl border border-bmu-blue/10 uppercase tracking-widest">
+            {assignments.length} Active
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4">
+          {assignments.length > 0 ? (
+            assignments.map((asgn) => (
+              <div key={asgn.id} className="flex items-center justify-between p-5 bg-slate-50/50 rounded-3xl border border-slate-100 hover:border-bmu-blue/20 transition-all group">
+                <div className="flex items-center gap-6">
+                  {/* Course Code Identifier */}
+                  <div className="h-12 w-12 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center font-black text-bmu-blue text-[10px] uppercase">
+                    {asgn.course_code.split(' ')[0]}
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black text-bmu-blue uppercase tracking-tighter">{asgn.course_code}</span>
+                    <h5 className="text-sm font-bold text-slate-900 uppercase">{asgn.course_name}</h5>
+                    <p className="text-[10px] text-slate-400 font-bold mt-0.5 tracking-wide italic">{asgn.semester} Semester</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-10">
+                  <div className="text-right">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Assigned Specialist</p>
+                    <p className="text-sm font-black text-slate-700">{asgn.profiles?.full_name}</p>
+                    {/* Visual indicator if lecturer is from another department */}
+                    {asgn.profiles?.department !== profile.department && (
+                      <span className="text-[9px] font-bold text-bmu-maroon bg-bmu-maroon/5 px-2 py-0.5 rounded-md mt-1 inline-block">
+                        External: {asgn.profiles?.department}
+                      </span>
+                    )}
+                  </div>
+                  
+                  {/* Client component for the delete action */}
+                  <DeleteAssignmentBtn id={asgn.id} />
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="text-center py-20 border-2 border-dashed border-slate-100 rounded-[2.5rem] bg-slate-50/30">
+              <BookOpen className="mx-auto text-slate-200 mb-4" size={48} />
+              <p className="text-slate-400 font-medium italic text-sm">No course assignments found for this department.</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
-  );
+  )
 }

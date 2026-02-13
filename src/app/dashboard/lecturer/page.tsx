@@ -1,53 +1,85 @@
-import LecturerCourseCard from '@/components/LecturerCourseCard';
-import { Plus, Search, Calendar, GraduationCap } from 'lucide-react';
+import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { getLecturerCourses } from '@/lib/data/stats'
+import StatCard from '@/components/dashboard/StatCard'
+import { BookOpen, Users, Clock, ArrowRight } from 'lucide-react'
 
-export default function LecturerPage() {
+export default async function LecturerDashboard() {
+  const supabase = await createSupabaseServerClient()
+  
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('full_name, department')
+    .eq('id', user?.id)
+    .single()
+
+  const courses = await getLecturerCourses(user?.id || '')
+
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-10">
-      {/* Welcome Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Lecturer Portal</h1>
-          <p className="text-slate-500 mt-1">Manage your courses, attendance, and student performance.</p>
-        </div>
-        <button className="bg-slate-900 text-white px-6 py-4 rounded-2xl font-bold text-xs uppercase tracking-widest flex items-center gap-3 hover:bg-teal-600 transition-all shadow-lg shadow-slate-200">
-          <Plus className="w-4 h-4" />
-          Create New Session
-        </button>
+    <div className="space-y-8">
+      {/* Lecturer Greeting */}
+      <div>
+        <h1 className="text-3xl font-black text-slate-900 tracking-tight">
+          Academic Portfolio
+        </h1>
+        <p className="text-slate-500 font-medium">
+          Logged in as <span className="text-bmu-blue font-bold">{profile?.full_name}</span> • {profile?.department}
+        </p>
       </div>
 
-      {/* Stats Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-200 p-6 rounded-[2rem]">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Current Semester</p>
-          <p className="text-lg font-bold text-slate-800">2025/2026 First</p>
-        </div>
-        <div className="bg-white border border-slate-200 p-6 rounded-[2rem]">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Courses</p>
-          <p className="text-lg font-bold text-slate-800">4 Assigned</p>
-        </div>
+      {/* Overview Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <StatCard 
+          title="Assigned Courses" 
+          value={courses.length} 
+          icon={BookOpen} 
+          trend="Semester 1" 
+          color="blue" 
+        />
+        <StatCard 
+          title="Total Students" 
+          value="-- " 
+          icon={Users} 
+          trend="Enrolled" 
+          color="maroon" 
+        />
+        <StatCard 
+          title="Next Lecture" 
+          value="09:00 AM" 
+          icon={Clock} 
+          trend="Tomorrow" 
+          color="green" 
+        />
       </div>
 
-      {/* Course Grid */}
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
-            <GraduationCap className="w-5 h-5 text-teal-600" />
-            Assigned Courses
-          </h2>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 ring-teal-500/20" placeholder="Filter courses..." />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* Your teammate will map through real course data here */}
-          <LecturerCourseCard code="CHM 101" title="Introduction to Chemistry" studentCount={142} nextLecture="Mon 10:00 AM" />
-          <LecturerCourseCard code="CHM 102" title="General Organic Chemistry" studentCount={128} nextLecture="Wed 02:00 PM" />
-          <LecturerCourseCard code="BIO 101" title="General Biology I" studentCount={210} nextLecture="Fri 08:00 AM" />
+      {/* Course Management Grid */}
+      <div className="space-y-4">
+        <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+          <BookOpen className="text-bmu-blue" size={20} />
+          Active Course Modules
+        </h2>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {courses.length > 0 ? courses.map((course) => (
+            <div key={course.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-medical flex items-center justify-between group hover:border-bmu-blue/30 transition-all">
+              <div>
+                <span className="text-[10px] font-black text-bmu-blue bg-bmu-blue/5 px-2 py-1 rounded-md uppercase tracking-widest">
+                  {course.course_code}
+                </span>
+                <h3 className="text-lg font-bold text-slate-900 mt-2">{course.course_name}</h3>
+                <p className="text-xs text-slate-400 font-medium">{course.semester} Semester • {profile?.department}</p>
+              </div>
+              <button className="h-12 w-12 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-bmu-blue group-hover:text-white transition-all shadow-sm">
+                <ArrowRight size={20} />
+              </button>
+            </div>
+          )) : (
+            <div className="col-span-2 py-20 text-center border-2 border-dashed border-slate-200 rounded-[2.5rem] bg-slate-50/50">
+               <p className="text-slate-400 font-medium italic">No courses currently assigned by the HOD.</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
-  );
+  )
 }

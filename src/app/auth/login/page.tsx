@@ -12,30 +12,30 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
 
   async function handleLogin(e: React.FormEvent) {
-  e.preventDefault()
-  setLoading(true)
-  setError(null)
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
 
-  const supabase = createSupabaseBrowserClient()
+    const supabase = createSupabaseBrowserClient()
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-    options: {
-      redirectTo: `${location.origin}/auth/callback`,
-    },
-  })
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
 
-  setLoading(false)
+    if (error) {
+      setLoading(false)
+      setError(error.message)
+      return
+    }
 
-  if (error) {
-    setError(error.message)
-    return
+    // ✅ Success! Manually push to the dispatcher
+    router.push('/dashboard')
+    
+    // ✅ Refresh ensures the Server Components/Middleware 
+    // recognize the new session cookie immediately
+    router.refresh()
   }
-
-  // ❌ DO NOT router.push here
-  // Supabase will redirect to /auth/callback
-}
 
 
   return (

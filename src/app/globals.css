@@ -1,24 +1,20 @@
 @import "tailwindcss";
 
-/* 🔑 Tell Tailwind where to scan */
-@source "./src/app/**/*.{js,ts,jsx,tsx}";
-@source "./src/components/**/*.{js,ts,jsx,tsx}";
-@source "./src/actions/**/*.{js,ts}";
-
-/* Design tokens */
-:root {
-  --background: #ffffff;
-  --foreground: #0f172a; /* slate-900 */
+@theme {
+  /* Define your BMU Global Palette here for v4 */
+  --color-bmu-blue: #0033CC;
+  --color-bmu-green: #66FF00;
+  --color-bmu-maroon: #8E4B8E;
+  --color-bmu-slate: #F8FAFC;
+  
+  --shadow-medical: 0 10px 40px -10px rgba(0, 51, 204, 0.15);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #020617; /* slate-950 */
-    --foreground: #e5e7eb; /* gray-200 */
+/* Base Styles */
+@layer base {
+  body {
+    background-color: var(--color-bmu-slate);
+    color: #0f172a; /* Slate 900 */
+    @apply antialiased;
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
 }
