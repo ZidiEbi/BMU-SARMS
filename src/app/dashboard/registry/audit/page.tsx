@@ -9,7 +9,7 @@ export default async function RegistryAudit() {
     .from('profiles')
     .select('*')
     .or('department.is.null,faculty.is.null')
-    .neq('role', 'super_admin') // Filter out the master admin
+    .neq('role', 'SUPER_ADMIN')
 
   return (
     <main className="p-8 space-y-8">

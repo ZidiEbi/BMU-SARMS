@@ -1,8 +1,10 @@
+import { span } from "framer-motion/client";
+
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       {/* Top Accent */}
-      <div className="h-1 bg-gradient-to-r from-bmu-purple via-bmu-green to-bmu-blue" />
+      <div className="h-1 bg-gradient-to-r from-bmu-purple via-bmu-maroon to-bmu-blue" />
 
       {/* Hero Section */}
       <section className="relative flex flex-col items-center justify-center px-6 py-24 text-center">
@@ -13,8 +15,8 @@ export default function HomePage() {
         </h1>
 
         <p className="relative z-10 mt-4 max-w-2xl text-lg text-foreground/70">
-          Secure Academic Records & Management System
-          <span className="block mt-1 text-sm uppercase tracking-wider text-bmu-green">
+          Secure Academic Records & Management System <span className="inline mt-1 text-md text-bmu-blue">S.A.R.M.S.</span>
+          <span className="block mt-1 text-md uppercase tracking-wider text-bmu-blue">
             Registry · Lecturers · HODs · Deans
           </span>
         </p>
@@ -22,14 +24,14 @@ export default function HomePage() {
         <div className="relative z-10 mt-10 flex flex-wrap gap-4 justify-center">
           <a
             href="/dashboard/registry"
-            className="rounded-xl bg-bmu-purple px-6 py-3 text-white font-medium shadow-lg shadow-bmu-purple/30 hover:scale-[1.02] hover:shadow-xl transition"
+            className="rounded-xl bg-bmu-maroon px-6 py-3 text-white font-medium shadow-lg shadow-bmu-purple/30 hover:scale-[1.02] hover:shadow-xl transition"
           >
             Go to Registry
           </a>
 
           <a
             href="/auth/login"
-            className="rounded-xl border border-bmu-border bg-bmu-surface px-6 py-3 font-medium hover:bg-bmu-surface/80 transition"
+            className="rounded-xl border border-bmu-maroon bg-bmu-surface px-6 py-3 font-medium hover:bg-bmu-surface/80 transition"
           >
             Sign In
           </a>

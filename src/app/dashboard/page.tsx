@@ -1,46 +1,48 @@
 import { redirect } from 'next/navigation'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
-export default async function DashboardPage() {
+export default async function DashboardRootPage() {
   const supabase = await createSupabaseServerClient()
-
-  // 1. Get the current user session
   const { data: { user } } = await supabase.auth.getUser()
+  
   if (!user) redirect('/auth/login')
 
-  // 2. Fetch profile with CACHE DISABLED
-  // We add { count: 'exact' } or just ensure the query isn't cached
   const { data: profile, error } = await supabase
     .from('profiles')
     .select('role')
     .eq('id', user.id)
     .single()
 
-  // 3. Robust Error Handling 
-  // If the profile doesn't exist yet, they must be pending
-  if (error || !profile) {
-    redirect('/pending')
+  if (error) {
+    console.error("Database Error:", error.message)
+    // If we can't find a profile, we have to send to pending
+    return redirect('/pending')
   }
 
-  // 4. Traffic Control Logic
-  // Using exact matches for your database strings
-  switch (profile.role) {
-    case 'SUPER_ADMIN':
-    case 'admin':
-      redirect('/dashboard/admin/roles')
-    case 'registry':
-      redirect('/dashboard/registry')
-    case 'lecturer':
-      redirect('/dashboard/lecturer')
-    case 'hod':
-      redirect('/dashboard/hod')
-    case 'dean':
-      redirect('/dashboard/dean')
-    case 'PENDING':
-      redirect('/pending')
-    default:
-      // If the role is anything else or misspelled, safe default to pending
-      console.log(`User ${user.id} has unknown role: ${profile.role}`)
-      redirect('/pending')
+  // Normalize the role for comparison
+  const role = profile?.role?.toUpperCase().trim() || 'NO_ROLE'
+
+  console.log("--- ROUTER DEBUG ---")
+  console.log("USER ID:", user.id)
+  console.log("DETECTED ROLE:", role)
+
+  // Redirect based on normalized role
+  if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
+    return redirect('/dashboard/admin')
   }
+  
+  if (role === 'HOD') {
+    return redirect('/dashboard/hod')
+  }
+  
+  if (role === 'DEAN') {
+    return redirect('/dashboard/dean')
+  }
+  
+  if (role === 'LECTURER') {
+    return redirect('/dashboard/lecturer')
+  }
+
+  // If role is something else or null
+  return redirect('/pending')
 }

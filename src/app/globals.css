@@ -18,3 +18,28 @@
     @apply antialiased;
   }
 }
+
+
+@media print {
+  /* Hide everything except the report */
+  nav, button, .no-print, aside {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+    padding: 0 !important;
+  }
+
+  .group {
+    border: 1px solid #e2e8f0 !important;
+    break-inside: avoid;
+    margin-bottom: 10px;
+  }
+
+  /* Force the "Hover Insight" to always be visible on paper */
+  .group-hover\:max-h-60 {
+    max-height: none !important;
+    opacity: 1 !important;
+  }
+}
