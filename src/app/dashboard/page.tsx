@@ -1,48 +1,19 @@
-import { redirect } from 'next/navigation'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+// src/app/dashboard/page.tsx
+import { redirect } from "next/navigation"
+import { getAuthProfileOrRedirect } from "@/lib/auth/guards"
 
-export default async function DashboardRootPage() {
-  const supabase = await createSupabaseServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  
-  if (!user) redirect('/auth/login')
+export default async function DashboardRouterPage() {
+  const { profile } = await getAuthProfileOrRedirect()
 
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single()
+  // profile.role is already normalized by your guards.ts:
+  // lecturer | hod | dean | admin | SUPER_ADMIN | PENDING
 
-  if (error) {
-    console.error("Database Error:", error.message)
-    // If we can't find a profile, we have to send to pending
-    return redirect('/pending')
-  }
+  const role = profile.role
 
-  // Normalize the role for comparison
-  const role = profile?.role?.toUpperCase().trim() || 'NO_ROLE'
+  if (role === "SUPER_ADMIN" || role === "admin") redirect("/dashboard/admin")
+  if (role === "hod") redirect("/dashboard/hod")
+  if (role === "dean") redirect("/dashboard/dean")
+  if (role === "lecturer") redirect("/dashboard/lecturer")
 
-  console.log("--- ROUTER DEBUG ---")
-  console.log("USER ID:", user.id)
-  console.log("DETECTED ROLE:", role)
-
-  // Redirect based on normalized role
-  if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
-    return redirect('/dashboard/admin')
-  }
-  
-  if (role === 'HOD') {
-    return redirect('/dashboard/hod')
-  }
-  
-  if (role === 'DEAN') {
-    return redirect('/dashboard/dean')
-  }
-  
-  if (role === 'LECTURER') {
-    return redirect('/dashboard/lecturer')
-  }
-
-  // If role is something else or null
-  return redirect('/pending')
+  redirect("/auth/pending")
 }
