@@ -2,6 +2,18 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function proxy(request: NextRequest) {
+  const pathname = request.nextUrl.pathname
+  
+  // 1. STATIC ASSETS - Immediate bypass
+  if (
+    request.headers.get('x-nextjs-prefetch') ||
+    pathname.startsWith('/_next') || 
+    pathname.includes('favicon.ico') ||
+    pathname.startsWith('/api/')
+  ) {
+    return NextResponse.next()
+  }
+
   let response = NextResponse.next({ request: { headers: request.headers } })
 
   const supabase = createServerClient(
@@ -9,10 +21,8 @@ export async function proxy(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet) {
+        getAll: () => request.cookies.getAll(),
+        setAll: (cookiesToSet) => {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           response = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
@@ -24,123 +34,67 @@ export async function proxy(request: NextRequest) {
   )
 
   const { data: { user } } = await supabase.auth.getUser()
-  const pathname = request.nextUrl.pathname
 
-  const isDashboardRoute = pathname.startsWith('/dashboard')
-  const isAuthRoute = pathname.startsWith('/auth')
-  const isCompleteProfileRoute = pathname === '/complete-profile'
-  const isPendingRoute = pathname.startsWith('/auth/pending')
-  const isAdminRoute = pathname.startsWith('/dashboard/admin')
-  const isLecturerVerifyPendingRoute = pathname.startsWith('/dashboard/lecturer/verification-pending')
-
-  // 1) Not logged in: block dashboard only
+  // 2. AUTH GATE
   if (!user) {
-    if (isDashboardRoute) {
+    if (pathname.startsWith('/dashboard')) {
       return NextResponse.redirect(new URL('/auth/login', request.url))
     }
     return response
   }
 
-  // 2) Load profile
-  const { data: profile, error: profErr } = await supabase
+  // 3. FETCH PROFILE
+  const { data: profile } = await supabase
     .from('profiles')
-    .select('role, profile_completed, faculty_id, department_id, is_verified')
+    .select('role, is_verified, is_active')
     .eq('id', user.id)
-    .maybeSingle()
+    .single()
 
-  // If profile missing or blocked, safest UX is to push to complete-profile
-  // (You can change this later once you're 100% sure profiles always exist.)
-  if (profErr || !profile) {
-    if (!isCompleteProfileRoute) {
-      return NextResponse.redirect(new URL('/complete-profile', request.url))
+  if (!profile) {
+    if (pathname !== '/auth/pending' && !pathname.startsWith('/auth/login')) {
+      return NextResponse.redirect(new URL('/auth/pending', request.url))
     }
     return response
   }
 
-  const roleRaw = String(profile.role ?? 'PENDING')
-  const role = roleRaw.toUpperCase()
+  // 4. ROLE NORMALIZATION
+  const rawRole = profile.role ?? 'pending'
+  const role = rawRole === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : rawRole.toLowerCase()
+  const isAdmin = role === 'admin' || role === 'SUPER_ADMIN'
 
-  const isAuthority = role === 'ADMIN' || role === 'SUPER_ADMIN'
+  // 5. ACCOUNT STATUS CHECK
+  if (profile.is_active === false) {
+    return NextResponse.redirect(new URL('/disabled', request.url))
+  }
 
-  const profileCompleted = profile.profile_completed === true
-  const hasFaculty = !!profile.faculty_id
-  const hasDept = !!profile.department_id
-
-  // Assignment rules:
-  // - PENDING = not assigned
-  // - DEAN needs faculty only
-  // - Lecturer/HOD need both faculty + department
-  const isAssigned =
-    role !== 'PENDING' &&
-    (
-      (role === 'DEAN' && hasFaculty) ||
-      ((role === 'LECTURER' || role === 'HOD') && hasFaculty && hasDept) ||
-      // if you later add other roles, default to needing both:
-      (!(role === 'DEAN' || role === 'LECTURER' || role === 'HOD') && hasFaculty && hasDept)
-    )
-
-  // 3) Admins bypass everything
-  if (isAuthority) {
-    if (isCompleteProfileRoute || isPendingRoute) {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
+  // 6. PENDING USER GATE
+  if (role === 'pending') {
+    if (pathname !== '/auth/pending') {
+      return NextResponse.redirect(new URL('/auth/pending', request.url))
     }
     return response
   }
 
-  /**
-   * 4) FIRST PRIORITY:
-   * If profile is NOT completed, they must see /complete-profile
-   * (regardless of whether they try /dashboard, /auth/pending, etc.)
-   *
-   * Allow only:
-   * - /complete-profile
-   * - /auth/*  (so they can logout, reset password, etc.)
-   * Everything else can remain accessible if you want (home page), but
-   * they should never enter dashboard/pending while incomplete.
-   */
-  if (!profileCompleted) {
-    if (!isCompleteProfileRoute && (isDashboardRoute || isPendingRoute)) {
-      return NextResponse.redirect(new URL('/complete-profile', request.url))
-    }
-    return response
-  }
-
-  /**
- * 5) After profile completed, but BEFORE assignment:
- * - If they try to enter /dashboard -> send them to /auth/pending
- * - If they are already assigned and they visit /auth/pending -> send them to /dashboard
- */
-if (!isAssigned) {
-  if (isDashboardRoute) {
-    return NextResponse.redirect(new URL('/auth/pending', request.url))
-  }
-  return response
-}
-
-if (isAssigned && isPendingRoute) {
-  return NextResponse.redirect(new URL('/dashboard', request.url))
-}
-
-  /**
-   * 6) Optional: lecturer verification gate (ONLY AFTER assignment)
-   */
-  const isLecturer = role === 'LECTURER'
-  const isVerified = profile.is_verified === true
-
-  if (isLecturer && !isVerified && isDashboardRoute && !isLecturerVerifyPendingRoute) {
-    return NextResponse.redirect(new URL('/dashboard/lecturer/verification-pending', request.url))
-  }
-
-  /**
-   * 7) Security: non-admins cannot access admin routes
-   */
-  if (isAdminRoute) {
+  // 7. REDIRECT ASSIGNED USERS AWAY FROM PENDING
+  if (role !== 'pending' && pathname === '/auth/pending') {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 
-  return response
-}
+  // 8. THE LOOP KILLER - Allow ALL dashboard routes except we need to ensure
+  // we don't double-process the root redirect
+  if (pathname.startsWith('/dashboard/')) {
+    // For admin sub-routes, still check permissions
+    if (pathname.startsWith('/dashboard/admin') && !isAdmin) {
+      return NextResponse.redirect(new URL('/dashboard', request.url))
+    }
+    // For HOD sub-routes, you might want to check department_id here later
+    return response
+  }
 
-export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  // 9. ROOT DASHBOARD - Let the page component handle the redirect
+  if (pathname === '/dashboard') {
+    return response
+  }
+
+  return response
 }

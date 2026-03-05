@@ -3,10 +3,10 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 
-export async function createCourseAction(formData: FormData) {
+export async function addCourseAction(formData: FormData) {
   const supabase = await createSupabaseServerClient()
-
-  const rawData = {
+  
+  const courseData = {
     course_code: formData.get('course_code') as string,
     title: formData.get('title') as string,
     units: parseInt(formData.get('units') as string),
@@ -14,14 +14,9 @@ export async function createCourseAction(formData: FormData) {
     department: formData.get('department') as string,
   }
 
-  const { error } = await supabase
-    .from('courses')
-    .insert([rawData])
+  const { error } = await supabase.from('courses').insert(courseData)
 
-  if (error) {
-    throw new Error(error.message)
-  }
+  if (error) throw new Error(error.message)
 
-  // Refresh the HOD dashboard data
   revalidatePath('/dashboard/hod')
 }

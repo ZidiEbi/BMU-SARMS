@@ -7,7 +7,7 @@ import Sidebar from '@/components/dashboard/Sidebar'
 
 export default function DashboardLayout({
   children,
-  profile // Pass this from the server component parent
+  profile
 }: {
   children: React.ReactNode
   profile: any
@@ -16,7 +16,6 @@ export default function DashboardLayout({
   const router = useRouter()
 
   useEffect(() => {
-    // Only listen for SIGN_OUT to prevent refresh loops on every token refresh
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_OUT') {
         router.push('/auth/login')

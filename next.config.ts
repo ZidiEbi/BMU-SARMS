@@ -1,12 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  turbopack: {
-    root: __dirname, // ensures Turbopack uses this project folder
+  // Move this out of experimental
+  devIndicators: {
   },
-
-  experimental: {
-    allowedDevOrigins: ["192.168.137.1", "localhost:3000"], // Add your local IP and port here
+  // If you are on the very latest Next.js, this key is often not needed 
+  // unless you are using specific cross-origin dev tools.
+  // experimental: { }, 
+  
+  turbopack: {
+    root: __dirname,
   },
 };
 

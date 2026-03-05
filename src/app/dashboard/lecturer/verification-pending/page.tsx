@@ -6,8 +6,11 @@ export default async function LecturerVerificationPendingPage() {
   const { profile } = await getAuthProfileOrRedirect()
   requireRole(profile, ['lecturer'])
 
+  // 1. Status Safety Checks
   if (profile.is_active === false) redirect('/disabled')
-  if (!profile.profile_completed) redirect('/dashboard/lecturer/onboarding')
+  
+  // 2. Verification Check
+  // If they are already verified, send them back to the dashboard
   if (profile.is_verified) redirect('/dashboard/lecturer')
 
   return (
@@ -19,19 +22,20 @@ export default async function LecturerVerificationPendingPage() {
 
         <h1 className="text-3xl font-black text-slate-900 uppercase leading-tight">Verification Pending</h1>
         <p className="mt-4 text-slate-500 font-medium leading-relaxed">
-          Your biodata has been submitted. You will gain access once your HOD approves your staff ID.
+          Your account is awaiting departmental clearance. Your HOD will verify your Staff ID shortly.
         </p>
 
         <div className="mt-8 p-6 bg-slate-50 rounded-[2rem] border border-slate-100 flex items-center gap-4 text-left">
-          <div className="bg-white p-3 rounded-xl shadow-sm text-bmu-blue">
+          <div className="bg-white p-3 rounded-xl shadow-sm text-blue-600">
             <Clock size={20} />
           </div>
           <div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Next Step</p>
-            <p className="text-xs font-bold text-slate-700">Waiting for HOD verification.</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</p>
+            <p className="text-xs font-bold text-slate-700">Awaiting HOD Approval</p>
           </div>
         </div>
 
+        {/* Use a standard form for signout to ensure cookie clearing */}
         <form action="/auth/signout" method="post" className="mt-10">
           <button className="mx-auto text-slate-400 hover:text-red-500 font-bold text-[10px] uppercase tracking-[0.2em] transition-colors">
             Sign Out & Check Later

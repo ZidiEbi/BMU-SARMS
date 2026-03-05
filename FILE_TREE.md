@@ -63,15 +63,12 @@ BMU-SARMS/
     │   │   ├── forgot-password/
     │   │   │   └── page.tsx
     │   │   ├── login/
-    │   │   │   │   └── favicon.ico
+    │   │   │   ├── favicon.ico
     │   │   │   └── page.tsx
     │   │   ├── pending/
     │   │   │   └── page.tsx
     │   │   └── signup/
     │   │       └── page.tsx
-    │   │
-    │   ├── complete-profile/
-    │   │   └── page.tsx
     │   │
     │   ├── dashboard/
     │   │   ├── layout.tsx
@@ -92,12 +89,13 @@ BMU-SARMS/
     │   │   │
     │   │   ├── hod/
     │   │   │   ├── layout.tsx
-    │   │   │   └── page.tsx
+    │   │   │   ├── page.tsx
+    │   │   │   └── verifications/
+    │   │   │       └── page.tsx
     │   │   │
     │   │   ├── lecturer/
     │   │   │   ├── layout.tsx
     │   │   │   ├── page.tsx
-    │   │   │   ├── LecturerOnboardingForm.tsx
     │   │   │   ├── ResultEntryList.tsx
     │   │   │   ├── ResultsTable.tsx
     │   │   │   ├── courses/
@@ -105,8 +103,6 @@ BMU-SARMS/
     │   │   │   │   └── [courseId]/
     │   │   │   │       ├── actions.ts
     │   │   │   │       └── page.tsx
-    │   │   │   ├── onboarding/
-    │   │   │   │   └── page.tsx
     │   │   │   └── verification-pending/
     │   │   │       └── page.tsx
     │   │   │
@@ -152,6 +148,9 @@ BMU-SARMS/
     │       │
     │       ├── hod/
     │       │   ├── AssignCourse.tsx
+    │       │   ├── AssignmentModal.tsx
+    │       │   ├── CourseCreator.tsx
+    │       │   ├── CourseList.tsx
     │       │   ├── DeleteAssignmentBtn.tsx
     │       │   ├── page.tsx
     │       │   ├── StaffManagement.tsx
@@ -169,7 +168,9 @@ BMU-SARMS/
         ├── supabase-browser.ts
         │
         ├── actions/
-        │   └── course-actions.ts
+        │   ├── course-actions.ts
+        │   ├── manage-courses.ts
+        │   └── verify-lecturer.ts
         │
         ├── auth/
         │   ├── guards.ts
@@ -200,7 +201,6 @@ BMU-SARMS/
 - **api/**: API routes for admin operations and form handling
 - **auth/**: Authentication system with login, signup, and OAuth callback
 - **dashboard/**: Role-based dashboards (admin, dean, hod, lecturer, registry)
-- **complete-profile/**: User profile completion
 - **dev/**: Development/preview pages
 - **pending/**: Pending approval pages
 

@@ -15,13 +15,13 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-// import AssignmentModal from './AssignmentModal' // Ensure the path is correct
+import AssignmentModal from './AssignmentModal'
 
 export default function StaffManagement({ 
   lecturers, 
   department, 
   assignments,
-  allDepartmentCourses // Add this prop to receive all possible courses for the dept
+  allDepartmentCourses 
 }: { 
   lecturers: any[], 
   department: string,
@@ -47,6 +47,7 @@ export default function StaffManagement({
     if (error) {
       alert(`Error: ${error.message}`)
     } else {
+      // router.refresh() fetches fresh server component data without a full page reload
       router.refresh()
     }
     setProcessingId(null)
@@ -55,7 +56,7 @@ export default function StaffManagement({
   return (
     <div className="space-y-8 mt-8">
       
-      {/* MODAL OVERLAY */}
+      {/* MODAL OVERLAY - Logic for course assignment */}
       {selectedStaff && (
         <AssignmentModal 
           lecturer={selectedStaff}
@@ -67,7 +68,7 @@ export default function StaffManagement({
 
       {/* SECTION 1: VERIFICATION REQUESTS */}
       {pendingStaff.length > 0 && (
-        <div className="bg-amber-50/40 p-8 rounded-[2.5rem] border border-amber-100 shadow-sm border-dashed no-print">
+        <div className="bg-amber-50/40 p-8 rounded-[2.5rem] border border-amber-100 shadow-sm border-dashed no-print animate-in slide-in-from-top duration-500">
           <div className="flex items-center gap-3 mb-6">
             <div className="bg-amber-100 p-2 rounded-xl text-amber-600">
               <ShieldAlert size={20} />
@@ -94,7 +95,7 @@ export default function StaffManagement({
       )}
 
       {/* SECTION 2: VERIFIED STAFF LIST */}
-      <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm print:border-none">
+      <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm print:border-none transition-all">
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
             <div className="bg-blue-50 p-2 rounded-xl text-blue-600 no-print">
@@ -122,8 +123,8 @@ export default function StaffManagement({
                 staff={staff} 
                 isPending={false} 
                 assignments={assignments}
-                onAssign={() => setSelectedStaff(staff)} // Trigger Modal
-                onRemove={() => handleAction(staff.id, { is_verified: false, profile_completed: false }, 'remove')}
+                onAssign={() => setSelectedStaff(staff)} 
+                onRemove={() => handleAction(staff.id, { is_verified: false }, 'remove')}
                 loading={processingId === staff.id}
               />
             ))
@@ -174,10 +175,14 @@ function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, ass
                 <button 
                   onClick={onAssign}
                   className={`flex items-center gap-1 text-[9px] font-black uppercase px-2 py-1 rounded-lg transition-all ${
-                    lecturerCourses.length === 0 ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
+                    lecturerCourses.length === 0 
+                    ? 'text-amber-600 bg-amber-50 hover:bg-amber-100 animate-pulse' 
+                    : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
                   }`}
                 >
-                  <BookOpen size={10} /> {lecturerCourses.length} Courses Assigned <Plus size={8} strokeWidth={4} className="ml-1" />
+                  <BookOpen size={10} /> 
+                  {lecturerCourses.length} Courses Assigned 
+                  <Plus size={8} strokeWidth={4} className="ml-1" />
                 </button>
               )}
             </div>
@@ -189,7 +194,7 @@ function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, ass
             <button 
               onClick={onVerify}
               disabled={loading}
-              className="bg-green-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
+              className="bg-green-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase hover:bg-green-700 disabled:opacity-50 flex items-center gap-2 shadow-md hover:shadow-green-200"
             >
               {loading ? <Loader2 size={14} className="animate-spin" /> : <><Check size={14} strokeWidth={3} /> Verify</>}
             </button>
@@ -197,7 +202,7 @@ function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, ass
             <button 
               onClick={onRemove}
               disabled={loading}
-              className="opacity-0 group-hover:opacity-100 bg-slate-50 text-slate-300 p-3 rounded-2xl hover:bg-red-50 hover:text-red-500 transition-all"
+              className="opacity-0 group-hover:opacity-100 bg-slate-50 text-slate-300 p-3 rounded-2xl hover:bg-red-50 hover:text-red-500 transition-all active:scale-95"
             >
               {loading ? <Loader2 size={16} className="animate-spin" /> : <UserMinus size={18} />}
             </button>

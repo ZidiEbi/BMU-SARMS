@@ -7,82 +7,48 @@ export type AppRole =
   | "dean"
   | "admin"
   | "SUPER_ADMIN"
-  | "PENDING"
-  | string
+  | "pending" // Changed to lowercase to match recovery rules
 
 export type Profile = {
   id: string
   full_name: string | null
-  phone_number: string | null
-  title: string | null
-  avatar_url: string | null
-  staff_id: string | null
   role: AppRole
-  department_id: string | null
-  faculty_id: string | null
-  profile_completed: boolean | null
   is_verified: boolean | null
   is_active: boolean | null
-  updated_at: string | null
-  created_at: string | null
+  // ... other fields remain same
 }
 
-function normalizeRole(role: unknown): AppRole {
-  if (!role) return "PENDING"
+// UNIFIED NORMALIZATION: Matches proxy.ts exactly
+export function normalizeRole(role: unknown): AppRole {
+  if (!role) return "pending"
   const r = String(role).trim()
-  if (r === "SUPER_ADMIN") return "SUPER_ADMIN"
-  return r.toLowerCase()
+  return r === "SUPER_ADMIN" ? "SUPER_ADMIN" : r.toLowerCase() as AppRole
 }
 
 export async function getAuthProfileOrRedirect() {
   const supabase = await createSupabaseServerClient()
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser()
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
   if (userError || !user) redirect("/auth/login")
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select(
-      `
-      id,
-      full_name,
-      phone_number,
-      title,
-      avatar_url,
-      staff_id,
-      role,
-      department_id,
-      faculty_id,
-      profile_completed,
-      is_verified,
-      is_active,
-      updated_at,
-      created_at
-    `
-    )
+    .select('*')
     .eq("id", user.id)
     .maybeSingle()
 
-  if (profileError) {
-    console.error("Profile fetch error:", profileError.message)
-    redirect("/pending")
-  }
-
-  if (!profile) redirect("/pending")
+  // Use /auth/pending to match the Middleware standard
+  if (profileError || !profile) redirect("/auth/pending")
 
   const normalized: Profile = { ...profile, role: normalizeRole(profile.role) }
   return { supabase, user, profile: normalized }
 }
 
 /**
- * Gate access based on role + status.
- * Pass pathname to prevent redirect-to-self loops.
+ * Institutional Gate: Handles Active Status and Lecturer Verification
  */
 export function routeGate(profile: Profile, pathname = "") {
-  const role = normalizeRole(profile.role)
+  const role = profile.role
 
   // 1) Disabled users
   if (profile.is_active === false) {
@@ -90,39 +56,35 @@ export function routeGate(profile: Profile, pathname = "") {
     return
   }
 
-  // 2) Pending / unassigned users
-  if (!role || role === "PENDING") {
-    if (pathname !== "/pending") redirect("/pending")
+  // 2) Assignment Gate
+  if (role === "pending") {
+    if (pathname !== "/auth/pending") redirect("/auth/pending")
     return
   }
 
-  // 3) Lecturer-only onboarding + verification flow
+  // 3) Lecturer Verification - ONLY for lecturers!
   if (role === "lecturer") {
-    if (!profile.profile_completed) {
-      if (pathname !== "/dashboard/lecturer/onboarding") {
-        redirect("/dashboard/lecturer/onboarding")
-      }
-      return
-    }
-
-    // Treat null as not verified
-    const verified = profile.is_verified === true
-    if (!verified) {
+    if (!profile.is_verified) {
       if (pathname !== "/dashboard/lecturer/verification-pending") {
         redirect("/dashboard/lecturer/verification-pending")
       }
       return
     }
   }
-
-  // 4) Everyone else (hod/dean/admin/SUPER_ADMIN) passes without lecturer gating
+  
+  // 4) For all other roles (hod, admin, etc.), do nothing
+  return
 }
 
 export function requireRole(profile: Profile, allowed: AppRole[]) {
-  const role = normalizeRole(profile.role)
-  const allowedNorm = allowed.map(normalizeRole)
+  const role = profile.role
+  
+  // The Master Key: Admins and Super Admins can bypass specific role gates
+  const hasMasterAccess = role === "SUPER_ADMIN" || role === "admin"
+  const isExplicitlyAllowed = allowed.includes(role)
 
-  if (!allowedNorm.includes(role)) {
-    redirect("/pending")
+  if (!hasMasterAccess && !isExplicitlyAllowed) {
+    console.log(`Access Denied: Role ${role} not in ${allowed}`)
+    redirect("/dashboard")
   }
 }

@@ -35,12 +35,7 @@ export default async function LecturerDashboardPage() {
       <header className="flex items-center justify-between gap-6">
         <div className="flex items-center gap-5">
           <div className="w-16 h-16 rounded-[1.5rem] overflow-hidden border-4 border-white shadow-lg bg-white flex items-center justify-center">
-            {profile.avatar_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <div className="text-slate-400 text-xs font-black">BMU</div>
-            )}
+            <div className="text-slate-400 text-xs font-black">BMU</div>
           </div>
 
           <div>
@@ -48,7 +43,6 @@ export default async function LecturerDashboardPage() {
               Lecturer Workspace
             </h1>
             <p className="text-slate-500 font-medium">
-              {profile.title ? `${profile.title} ` : ""}
               {profile.full_name ?? "Lecturer"}
             </p>
           </div>
