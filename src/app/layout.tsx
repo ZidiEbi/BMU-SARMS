@@ -1,30 +1,32 @@
-import type { Metadata } from 'next'
-import { Inter } from 'next/font/google' // Import a professional font
-import './globals.css'
+import type { Metadata } from "next"
+import { Geist, Geist_Mono } from "next/font/google"
+import "./globals.css"
 
-// Configure the font
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+})
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+})
 
 export const metadata: Metadata = {
-  title: 'BMU SAMS',
-  description: 'Bayelsa Medical University Student & Result Management System',
+  title: "BMU-SARMS",
+  description: "Babcock University Student Academic Records Management System",
 }
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode
-}) {
+}>) {
   return (
-    <html lang="en" className={inter.variable} suppressHydrationWarning>
+    <html lang="en">
       <body
-        className={`${inter.className} min-h-screen bg-slate-50 text-slate-900 antialiased`}
-        suppressHydrationWarning
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {/* Using bg-slate-50 instead of bg-background gives 
-          that subtle "dashboard" feel where the white cards 
-          actually stand out from the background.
-        */}
         {children}
       </body>
     </html>

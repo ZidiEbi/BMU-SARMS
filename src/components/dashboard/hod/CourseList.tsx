@@ -2,19 +2,28 @@
 
 import { Trash2, BookOpen, Hash, GraduationCap } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
+import { useEffect } from 'react'
 
 export default function CourseList({ courses }: { courses: any[] }) {
   const supabase = createBrowserClient()
   const router = useRouter()
+  const pathname = usePathname()
+
+  useEffect(() => {
+    console.log('📋 CourseList mounted on:', pathname)
+  }, [pathname])
 
   const handleDelete = async (id: string) => {
+    console.log('🗑️ Attempting to delete course:', id)
     if (!confirm("Remove this course from the registry? This will affect staff assignments.")) return
     
     const { error } = await supabase.from('courses').delete().eq('id', id)
     if (error) {
+      console.error('❌ Delete error:', error)
       alert("System Error: " + error.message)
     } else {
+      console.log('✅ Course deleted, refreshing...')
       router.refresh()
     }
   }

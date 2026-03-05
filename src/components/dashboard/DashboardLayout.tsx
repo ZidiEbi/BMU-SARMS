@@ -28,7 +28,7 @@ export default function DashboardLayout({
 
   return (
     <div className="flex min-h-screen bg-slate-50">
-      <Sidebar role={profile?.role || 'pending'} />
+      <Sidebar />
       <main className="flex-1 h-screen overflow-y-auto">
         {children}
       </main>

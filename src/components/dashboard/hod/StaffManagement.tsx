@@ -1,53 +1,60 @@
 'use client'
 
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
-import { 
-  UserMinus, 
-  ShieldAlert, 
-  Loader2, 
-  Users, 
-  UserCircle, 
-  BookOpen, 
-  Check, 
-  Printer, 
+import {
+  UserMinus,
+  ShieldAlert,
+  Loader2,
+  Users,
+  UserCircle,
+  BookOpen,
+  Check,
+  Printer,
   UserCheck,
   Plus
 } from 'lucide-react'
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 import AssignmentModal from './AssignmentModal'
 
-export default function StaffManagement({ 
-  lecturers, 
-  department, 
+export default function StaffManagement({
+  lecturers,
+  department,
   assignments,
-  allDepartmentCourses 
-}: { 
-  lecturers: any[], 
+  allDepartmentCourses
+}: {
+  lecturers: any[],
   department: string,
   assignments: any[],
   allDepartmentCourses: any[]
 }) {
   const supabase = createSupabaseBrowserClient()
   const router = useRouter()
+  const pathname = usePathname()
   const [processingId, setProcessingId] = useState<string | null>(null)
   const [selectedStaff, setSelectedStaff] = useState<any | null>(null)
+
+  useEffect(() => {
+    console.log('👥 StaffManagement mounted on:', pathname)
+  }, [pathname])
 
   const pendingStaff = lecturers.filter(s => !s.is_verified)
   const confirmedStaff = lecturers.filter(s => s.is_verified)
 
   const handleAction = async (id: string, updates: any, actionName: string) => {
+    console.log(`🔧 Handling ${actionName} for staff:`, id)
     if (actionName === 'remove' && !confirm("Are you sure? This will unverify the staff and clear their department status.")) {
       return
     }
 
     setProcessingId(id)
     const { error } = await supabase.from('profiles').update(updates).eq('id', id)
-    
+
     if (error) {
+      console.error(`❌ ${actionName} error:`, error)
       alert(`Error: ${error.message}`)
     } else {
-      // router.refresh() fetches fresh server component data without a full page reload
+      console.log(`✅ ${actionName} successful, refreshing...`)
       router.refresh()
     }
     setProcessingId(null)
@@ -55,14 +62,17 @@ export default function StaffManagement({
 
   return (
     <div className="space-y-8 mt-8">
-      
+
       {/* MODAL OVERLAY - Logic for course assignment */}
       {selectedStaff && (
-        <AssignmentModal 
+        <AssignmentModal
           lecturer={selectedStaff}
           availableCourses={allDepartmentCourses}
           currentAssignments={assignments}
-          onClose={() => setSelectedStaff(null)}
+          onClose={() => {
+            console.log('🔚 Closing assignment modal')
+            setSelectedStaff(null)
+          }}
         />
       )}
 
@@ -81,10 +91,10 @@ export default function StaffManagement({
 
           <div className="grid gap-4">
             {pendingStaff.map((staff) => (
-              <StaffRow 
-                key={staff.id} 
-                staff={staff} 
-                isPending={true} 
+              <StaffRow
+                key={staff.id}
+                staff={staff}
+                isPending={true}
                 onVerify={() => handleAction(staff.id, { is_verified: true }, 'verify')}
                 onRemove={() => handleAction(staff.id, { department: null, faculty: null, is_verified: false, profile_completed: false }, 'remove')}
                 loading={processingId === staff.id}
@@ -107,8 +117,11 @@ export default function StaffManagement({
             </div>
           </div>
 
-          <button 
-            onClick={() => window.print()}
+          <button
+            onClick={() => {
+              console.log('🖨️ Printing registry')
+              window.print()
+            }}
             className="no-print flex items-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase hover:bg-blue-600 transition-all shadow-lg"
           >
             <Printer size={14} /> Print Registry
@@ -118,12 +131,15 @@ export default function StaffManagement({
         <div className="grid gap-4">
           {confirmedStaff.length > 0 ? (
             confirmedStaff.map((staff) => (
-              <StaffRow 
-                key={staff.id} 
-                staff={staff} 
-                isPending={false} 
+              <StaffRow
+                key={staff.id}
+                staff={staff}
+                isPending={false}
                 assignments={assignments}
-                onAssign={() => setSelectedStaff(staff)} 
+                onAssign={() => {
+                  console.log('📋 Opening assignment modal for:', staff.full_name)
+                  setSelectedStaff(staff)
+                }}
                 onRemove={() => handleAction(staff.id, { is_verified: false }, 'remove')}
                 loading={processingId === staff.id}
               />
@@ -141,6 +157,22 @@ export default function StaffManagement({
 
 function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, assignments }: any) {
   const lecturerCourses = assignments?.filter((a: any) => a.lecturer_id === staff.id) || []
+  const [imageError, setImageError] = useState(false)
+  const [imageLoaded, setImageLoaded] = useState(false)
+
+  // Check if avatar_url is valid (not null, not empty string, not undefined)
+  const hasValidAvatar = staff.avatar_url &&
+    staff.avatar_url !== '' &&
+    staff.avatar_url !== 'null' &&
+    staff.avatar_url !== 'undefined'
+
+  console.log('🖼️ Staff avatar check:', {
+    id: staff.id,
+    name: staff.full_name,
+    avatar_url: staff.avatar_url,
+    hasValidAvatar,
+    type: typeof staff.avatar_url
+  })
 
   return (
     <div className="group relative flex flex-col bg-white rounded-[2rem] border border-slate-100 hover:border-blue-400/40 hover:shadow-xl transition-all duration-300">
@@ -148,10 +180,28 @@ function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, ass
         <div className="flex items-center gap-4">
           <div className="relative">
             <div className={`w-16 h-16 rounded-[1.5rem] overflow-hidden border-2 ${isPending ? 'border-amber-200' : 'border-slate-50'}`}>
-              {staff.avatar_url ? (
-                <img src={staff.avatar_url} alt="" className="w-full h-full object-cover" />
+              {hasValidAvatar && !imageError ? (
+                <img
+                  src={staff.avatar_url}
+                  alt={`${staff.full_name}'s avatar`}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    console.error('❌ Image failed to load:', {
+                      url: staff.avatar_url,
+                      staffId: staff.id,
+                      staffName: staff.full_name
+                    })
+                    setImageError(true)
+                    // Hide the broken image
+                    e.currentTarget.style.display = 'none'
+                  }}
+                  onLoad={() => {
+                    console.log('✅ Image loaded successfully:', staff.id)
+                    setImageLoaded(true)
+                  }}
+                />
               ) : (
-                <div className="w-full h-full bg-slate-50 flex items-center justify-center text-slate-200">
+                <div className="w-16 h-16 rounded-[1.5rem] overflow-hidden border-2 bg-slate-50 flex items-center justify-center text-slate-200">
                   <UserCircle size={32} />
                 </div>
               )}
@@ -162,7 +212,7 @@ function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, ass
               </div>
             )}
           </div>
-          
+
           <div>
             <h3 className="font-black text-slate-900 text-sm uppercase tracking-tight">
               {staff.title} {staff.full_name}
@@ -172,16 +222,15 @@ function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, ass
                 ID: {staff.staff_id || '---'}
               </span>
               {!isPending && (
-                <button 
+                <button
                   onClick={onAssign}
-                  className={`flex items-center gap-1 text-[9px] font-black uppercase px-2 py-1 rounded-lg transition-all ${
-                    lecturerCourses.length === 0 
-                    ? 'text-amber-600 bg-amber-50 hover:bg-amber-100 animate-pulse' 
-                    : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
-                  }`}
+                  className={`flex items-center gap-1 text-[9px] font-black uppercase px-2 py-1 rounded-lg transition-all ${lecturerCourses.length === 0
+                      ? 'text-amber-600 bg-amber-50 hover:bg-amber-100 animate-pulse'
+                      : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
+                    }`}
                 >
-                  <BookOpen size={10} /> 
-                  {lecturerCourses.length} Courses Assigned 
+                  <BookOpen size={10} />
+                  {lecturerCourses.length} Courses Assigned
                   <Plus size={8} strokeWidth={4} className="ml-1" />
                 </button>
               )}
@@ -191,7 +240,7 @@ function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, ass
 
         <div className="flex gap-2 no-print">
           {isPending ? (
-            <button 
+            <button
               onClick={onVerify}
               disabled={loading}
               className="bg-green-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase hover:bg-green-700 disabled:opacity-50 flex items-center gap-2 shadow-md hover:shadow-green-200"
@@ -199,7 +248,7 @@ function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, ass
               {loading ? <Loader2 size={14} className="animate-spin" /> : <><Check size={14} strokeWidth={3} /> Verify</>}
             </button>
           ) : (
-            <button 
+            <button
               onClick={onRemove}
               disabled={loading}
               className="opacity-0 group-hover:opacity-100 bg-slate-50 text-slate-300 p-3 rounded-2xl hover:bg-red-50 hover:text-red-500 transition-all active:scale-95"

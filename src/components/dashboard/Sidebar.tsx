@@ -7,64 +7,92 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { 
   LayoutDashboard, Users, ClipboardList, 
   LogOut, ChevronLeft, Menu, GraduationCap,
-  ShieldCheck, Activity, BookOpen
+  ShieldCheck, Activity, BookOpen, Loader2
 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 
-export default function Sidebar({ role }: { role: string }) {
+export default function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [role, setRole] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createBrowserClient()
 
   useEffect(() => {
     setMounted(true)
-    console.log('📍 Sidebar mounted with role:', role, 'pathname:', pathname)
-  }, [role, pathname])
+    console.log('📍 Sidebar mounted, current path:', pathname)
+    
+    async function fetchUserRole() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+        
+        setRole(profile?.role || 'pending')
+        console.log('👤 Sidebar fetched role:', profile?.role)
+      }
+      setLoading(false)
+    }
+
+    fetchUserRole()
+  }, [pathname, supabase])
+
+  // Track pathname changes
+  useEffect(() => {
+    if (mounted) {
+      console.log('📍 Path changed to:', pathname)
+    }
+  }, [pathname, mounted])
 
   const handleSignOut = async () => {
+    console.log('🚪 Signing out...')
     await supabase.auth.signOut()
     router.push('/auth/login')
     router.refresh()
   }
 
   const handleHashLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    console.log('🔗 Hash link clicked:', href, 'from path:', pathname)
     if (href.includes('#')) {
       e.preventDefault()
       const [path, hash] = href.split('#')
-      console.log('📍 Hash link clicked - navigating to:', path, 'hash:', hash)
-      
-      // First navigate to the path
+      console.log('📍 Navigating to path:', path, 'with hash:', hash)
       router.push(path)
-      
-      // Then scroll to the element after navigation
       setTimeout(() => {
         const element = document.getElementById(hash)
         if (element) {
+          console.log('📍 Scrolling to element:', hash)
           element.scrollIntoView({ behavior: 'smooth' })
         }
       }, 100)
     }
   }
 
-  const rolePath = (role === 'SUPER_ADMIN' || role === 'admin') 
-    ? 'admin' 
-    : role.toLowerCase()
+  if (loading || !mounted) {
+    return (
+      <div className="w-[280px] bg-white border-r border-slate-200 min-h-screen flex items-center justify-center">
+        <Loader2 className="animate-spin text-blue-600" size={32} />
+      </div>
+    )
+  }
 
-  // Base Links
+  const rolePath = (role === 'SUPER_ADMIN' || role === 'admin') ? 'admin' : role?.toLowerCase() || 'pending'
+  
   const navLinks = [
     { name: 'Dashboard', href: `/dashboard/${rolePath}`, icon: LayoutDashboard },
   ]
 
-  // HOD SPECIFIC TOOLS
   if (role === 'hod' || role === 'SUPER_ADMIN' || role === 'admin') {
     navLinks.push({ name: 'Staff Registry', href: '/dashboard/hod#staff', icon: Users })
-    navLinks.push({ name: 'Course Catalog', href: '/dashboard/hod#courses', icon: BookOpen }) 
+    navLinks.push({ name: 'Course Catalog', href: '/dashboard/hod#courses', icon: BookOpen })
     navLinks.push({ name: 'Allocations', href: '/dashboard/hod#allocations', icon: ClipboardList })
   }
 
-  // ADMIN TOOLS
   if (role === 'admin' || role === 'SUPER_ADMIN') {
     navLinks.push({ name: 'Role Control', href: '/dashboard/admin/roles', icon: ShieldCheck })
     navLinks.push({ name: 'System Logs', href: '/dashboard/admin/logs', icon: Activity })
@@ -84,7 +112,6 @@ export default function Sidebar({ role }: { role: string }) {
       animate={{ width: isCollapsed ? 90 : 280 }}
       className="bg-white border-r border-slate-200 flex flex-col min-h-screen sticky top-0 z-50 shadow-sm"
     >
-      {/* Brand Header */}
       <div className="p-6 flex items-center justify-between border-b border-slate-50">
         <AnimatePresence mode="wait">
           {!isCollapsed && (
@@ -112,7 +139,6 @@ export default function Sidebar({ role }: { role: string }) {
         </button>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 px-4 space-y-1.5 mt-6">
         {navLinks.map((link, index) => {
           const Icon = link.icon
@@ -149,14 +175,13 @@ export default function Sidebar({ role }: { role: string }) {
         })}
       </nav>
 
-      {/* Institutional Footer */}
       <div className="p-4 border-t border-slate-100">
         <div className={`p-3 rounded-2xl bg-slate-50 mb-4 transition-all ${isCollapsed ? 'opacity-0' : 'opacity-100'}`}>
             <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest text-center">
               Identity Verified
             </p>
             <p className="text-[11px] text-center font-bold text-red-900 mt-1 truncate uppercase">
-              {role ? role.replace('_', ' ') : 'LOADING'}
+              {role ? role.replace('_', ' ') : 'PENDING'}
             </p>
         </div>
         <button 

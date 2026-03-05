@@ -7,13 +7,7 @@ export default async function DashboardPage() {
   console.log("🔥 Root dashboard - profile role:", profile.role)
 
   const role = profile.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : profile.role?.toLowerCase()
-  console.log("🔥 Root dashboard - normalized role:", role)
-
-  if (role === 'SUPER_ADMIN' || role === 'admin') {
-    console.log("🔥 Root dashboard - redirecting to /dashboard/admin")
-    return redirect('/dashboard/admin')
-  }
-
+  
   if (role === 'hod') {
     console.log("🔥 Root dashboard - redirecting to /dashboard/hod")
     return redirect('/dashboard/hod')
@@ -22,6 +16,11 @@ export default async function DashboardPage() {
   if (role === 'lecturer') {
     console.log("🔥 Root dashboard - redirecting to /dashboard/lecturer")
     return redirect('/dashboard/lecturer')
+  }
+
+  if (role === 'admin' || role === 'SUPER_ADMIN') {
+    console.log("🔥 Root dashboard - redirecting to /dashboard/admin")
+    return redirect('/dashboard/admin')
   }
 
   if (role === 'student') {

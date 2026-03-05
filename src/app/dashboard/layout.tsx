@@ -1,38 +1,12 @@
-'use client'
+import { getAuthProfileOrRedirect } from "@/lib/auth/guards"
+import DashboardLayout from "@/components/dashboard/DashboardLayout"
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { createBrowserClient } from '@/lib/supabase/client'
-import Sidebar from '@/components/dashboard/Sidebar'
-
-export default function DashboardLayout({
-  children,
-  profile // Pass this from the server component parent
-}: {
-  children: React.ReactNode
-  profile: any
-}) {
-  const supabase = createBrowserClient()
-  const router = useRouter()
-
-  useEffect(() => {
-    // Only listen for SIGN_OUT to prevent refresh loops on every token refresh
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') {
-        router.push('/auth/login')
-        router.refresh()
-      }
-    })
-
-    return () => subscription.unsubscribe()
-  }, [router, supabase])
-
+export default async function Layout({ children }: { children: React.ReactNode }) {
+  const { profile } = await getAuthProfileOrRedirect()
+  
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <Sidebar role={profile?.role || 'pending'} />
-      <main className="flex-1 h-screen overflow-y-auto">
-        {children}
-      </main>
-    </div>
+    <DashboardLayout profile={profile}>
+      {children}
+    </DashboardLayout>
   )
 }
