@@ -6,6 +6,12 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/browser'
 
 type Status = 'checking' | 'waiting' | 'redirecting' | 'not_logged_in' | 'error'
 
+function normalizeRole(role: unknown) {
+  if (!role) return 'pending'
+  const value = String(role).trim()
+  return value === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : value.toLowerCase()
+}
+
 export default function PendingPage() {
   const router = useRouter()
   const supabase = useMemo(() => createSupabaseBrowserClient(), [])
@@ -17,33 +23,6 @@ export default function PendingPage() {
     let cancelled = false
     let intervalId: ReturnType<typeof setInterval> | null = null
 
-    const computeIsAssigned = (p: {
-      role: any
-      profile_completed: any
-      faculty_id: any
-      department_id: any
-    }) => {
-      const role = String(p?.role ?? 'PENDING').toUpperCase()
-      const profileCompleted = p?.profile_completed === true
-      const hasFaculty = !!p?.faculty_id
-      const hasDept = !!p?.department_id
-
-      if (!profileCompleted) return false
-
-      // Mirrors your proxy logic:
-      // - PENDING = not assigned
-      // - DEAN needs faculty only
-      // - Lecturer/HOD need faculty + department
-      // - Others default to faculty + department
-      const isAssigned =
-        role !== 'PENDING' &&
-        ((role === 'DEAN' && hasFaculty) ||
-          ((role === 'LECTURER' || role === 'HOD') && hasFaculty && hasDept) ||
-          (!(role === 'DEAN' || role === 'LECTURER' || role === 'HOD') && hasFaculty && hasDept))
-
-      return isAssigned
-    }
-
     const check = async () => {
       try {
         if (cancelled) return
@@ -51,7 +30,6 @@ export default function PendingPage() {
         setStatus('checking')
         setMessage('Checking your access…')
 
-        // 1) Must be logged in
         const {
           data: { user },
           error: authErr,
@@ -71,10 +49,9 @@ export default function PendingPage() {
           return
         }
 
-        // 2) Load profile (client-side)
         const { data: profile, error: profErr } = await supabase
           .from('profiles')
-          .select('role, profile_completed, faculty_id, department_id')
+          .select('role, profile_completed, faculty_id, department_id, is_verified, is_active')
           .eq('id', user.id)
           .maybeSingle()
 
@@ -86,8 +63,34 @@ export default function PendingPage() {
           return
         }
 
-        // 3) If not completed, the proxy should send them to /complete-profile,
-        // but we also redirect just in case they landed here.
+        const role = normalizeRole(profile.role)
+
+        if (profile.is_active === false) {
+          setStatus('redirecting')
+          setMessage('Your account has been disabled. Redirecting…')
+          router.push('/disabled')
+          router.refresh()
+          return
+        }
+
+        // Only truly pending users should remain on this page
+        if (role !== 'pending') {
+          // Lecturer-specific verification route
+          if (role === 'lecturer' && !profile.is_verified) {
+            setStatus('redirecting')
+            setMessage('Your lecturer account is awaiting verification. Redirecting…')
+            router.push('/dashboard/lecturer/verification-pending')
+            router.refresh()
+            return
+          }
+
+          setStatus('redirecting')
+          setMessage('Your account is already assigned. Redirecting to your dashboard…')
+          router.push('/dashboard')
+          router.refresh()
+          return
+        }
+
         if (profile.profile_completed !== true) {
           setStatus('redirecting')
           setMessage('You need to complete your profile. Redirecting…')
@@ -96,19 +99,9 @@ export default function PendingPage() {
           return
         }
 
-        // 4) If assigned, redirect to dashboard
-        if (computeIsAssigned(profile)) {
-          setStatus('redirecting')
-          setMessage('Access granted. Redirecting to your dashboard…')
-          router.push('/dashboard')
-          router.refresh()
-          return
-        }
-
-        // 5) Otherwise keep waiting
         setStatus('waiting')
         setMessage(
-          'Your profile is submitted. Please wait for an administrator to assign your role, faculty, and (if required) department.'
+          'Your profile is submitted. Please wait for an administrator to assign your role, faculty, and department where required.'
         )
       } catch (e: any) {
         if (cancelled) return
@@ -117,7 +110,6 @@ export default function PendingPage() {
       }
     }
 
-    // Initial check + poll
     check()
     intervalId = setInterval(check, 5000)
 
@@ -131,10 +123,10 @@ export default function PendingPage() {
     status === 'redirecting'
       ? 'Redirecting…'
       : status === 'error'
-      ? 'Something went wrong'
-      : status === 'not_logged_in'
-      ? 'Session missing'
-      : 'Access pending'
+        ? 'Something went wrong'
+        : status === 'not_logged_in'
+          ? 'Session missing'
+          : 'Access pending'
 
   return (
     <div className="min-h-screen flex items-center justify-center text-center px-6">

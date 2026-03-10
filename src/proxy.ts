@@ -1,13 +1,19 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+function normalizeRole(role: unknown) {
+  if (!role) return 'pending'
+  const value = String(role).trim()
+  return value === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : value.toLowerCase()
+}
+
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname
-  
+
   // 1. STATIC ASSETS - Immediate bypass
   if (
     request.headers.get('x-nextjs-prefetch') ||
-    pathname.startsWith('/_next') || 
+    pathname.startsWith('/_next') ||
     pathname.includes('favicon.ico') ||
     pathname.startsWith('/api/')
   ) {
@@ -35,7 +41,9 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
   // 2. AUTH GATE
   if (!user) {
@@ -62,16 +70,17 @@ export async function proxy(request: NextRequest) {
   }
 
   // 4. ROLE NORMALIZATION
-  const rawRole = profile.role ?? 'pending'
-  const role = rawRole === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : rawRole.toLowerCase()
-  const isAdmin = role === 'admin' || role === 'SUPER_ADMIN'
+  const role = normalizeRole(profile.role)
 
   console.log('🛡️ User role:', role, 'path:', pathname)
 
   // 5. ACCOUNT STATUS CHECK
   if (profile.is_active === false) {
     console.log('🛡️ Account disabled')
-    return NextResponse.redirect(new URL('/disabled', request.url))
+    if (pathname !== '/disabled') {
+      return NextResponse.redirect(new URL('/disabled', request.url))
+    }
+    return response
   }
 
   // 6. PENDING USER GATE
@@ -83,22 +92,38 @@ export async function proxy(request: NextRequest) {
     return response
   }
 
-  // 7. REDIRECT ASSIGNED USERS AWAY FROM PENDING
-  if (role !== 'pending' && pathname === '/auth/pending') {
+  // 7. LECTURER VERIFICATION GATE ONLY
+  if (role === 'lecturer' && !profile.is_verified) {
+    if (
+      pathname !== '/dashboard/lecturer/verification-pending' &&
+      !pathname.startsWith('/auth/login')
+    ) {
+      console.log('🛡️ Lecturer not verified, redirecting to verification-pending')
+      return NextResponse.redirect(
+        new URL('/dashboard/lecturer/verification-pending', request.url)
+      )
+    }
+    return response
+  }
+
+  // 8. REDIRECT ASSIGNED USERS AWAY FROM PENDING
+  if (pathname === '/auth/pending') {
     console.log('🛡️ User has role, redirecting from pending to dashboard')
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 
-  // 8. ALLOW ALL ROLE-SPECIFIC PAGES - NO REDIRECTS
-  if (pathname.startsWith('/dashboard/hod') || 
-      pathname.startsWith('/dashboard/admin') ||
-      pathname.startsWith('/dashboard/lecturer') ||
-      pathname.startsWith('/dashboard/student')) {
+  // 9. ALLOW ALL ROLE-SPECIFIC PAGES
+  if (
+    pathname.startsWith('/dashboard/hod') ||
+    pathname.startsWith('/dashboard/admin') ||
+    pathname.startsWith('/dashboard/lecturer') ||
+    pathname.startsWith('/dashboard/student')
+  ) {
     console.log('🛡️ Allowing role-specific page:', pathname)
     return response
   }
 
-  // 9. ROOT DASHBOARD - Let the page component handle the redirect
+  // 10. ROOT DASHBOARD - Let page component handle role redirect
   if (pathname === '/dashboard') {
     console.log('🛡️ Root dashboard - letting page handle redirect')
     return response

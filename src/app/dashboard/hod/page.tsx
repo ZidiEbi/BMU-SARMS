@@ -6,48 +6,69 @@ import CourseList from "@/components/dashboard/hod/CourseList"
 
 export default async function HODDashboard() {
   console.log("📊 HOD DASHBOARD PAGE RENDERING")
+
   const { supabase, profile } = await getAuthProfileOrRedirect()
   console.log("📊 HOD page - profile role:", profile.role)
 
-  // Security & Role Guards
   requireRole(profile, ["hod", "admin", "SUPER_ADMIN"])
 
-  // Fetch Department Name to avoid UUID "Mess"
-  const { data: profileData } = await supabase
-    .from("profiles")
-    .select(`
-      department_id,
-      departments:department_id (
-        name
-      )
-    `)
-    .eq("id", profile.id)
-    .single()
-
-  const rawDeptId = profileData?.department_id
   const isAdmin = profile.role === "SUPER_ADMIN" || profile.role === "admin"
-  
-  const deptLabel = (profileData as any)?.departments?.name 
-    || (isAdmin ? "University-Wide Oversight" : rawDeptId) 
-    || "General Department"
+  const rawDeptId = profile.department_id ?? null
 
-  if (!rawDeptId && !isAdmin) return redirect("/auth/pending")
+  if (!rawDeptId && !isAdmin) {
+    return redirect("/auth/pending")
+  }
+
+  let deptLabel = isAdmin ? "University-Wide Oversight" : "General Department"
+
+  if (rawDeptId) {
+    const { data: departmentData } = await supabase
+      .from("departments")
+      .select("name")
+      .eq("id", rawDeptId)
+      .maybeSingle()
+
+    deptLabel = departmentData?.name || rawDeptId
+  }
 
   let lecturerQuery = supabase
     .from("profiles")
-    .select("id, full_name, staff_id, role, is_verified, title, avatar_url")
+    .select("id, full_name, staff_id, role, is_verified, title, avatar_url, department_id, faculty_id")
     .eq("role", "lecturer")
 
-  if (rawDeptId) {
+  if (rawDeptId && !isAdmin) {
     lecturerQuery = lecturerQuery.eq("department_id", rawDeptId)
+  }
+
+  let coursesQuery = supabase.from("courses").select("*")
+
+  if (rawDeptId && !isAdmin) {
+    coursesQuery = coursesQuery.eq("department_id", rawDeptId)
+  }
+
+  let assignmentsQuery = supabase
+    .from("course_assignments")
+    .select(`
+      *,
+      profiles:lecturer_id (full_name)
+    `)
+
+  if (rawDeptId && !isAdmin) {
+    assignmentsQuery = assignmentsQuery.in(
+      "course_id",
+      (
+        await supabase
+          .from("courses")
+          .select("id")
+          .eq("department_id", rawDeptId)
+      ).data?.map((course) => course.id) || []
+    )
   }
 
   const [lecturersRes, assignmentsRes, coursesRes] = await Promise.all([
     lecturerQuery,
-    supabase.from("course_assignments").select(`*, profiles:lecturer_id (full_name)`),
-    supabase.from("courses")
-      .select("*")
-      .eq(rawDeptId ? "department_id" : "", rawDeptId || "")
+    assignmentsQuery,
+    coursesQuery,
   ])
 
   return (
@@ -68,7 +89,7 @@ export default async function HODDashboard() {
       <div id="staff" className="scroll-mt-10">
         <StaffManagement
           lecturers={lecturersRes.data || []}
-          department={deptLabel} 
+          department={deptLabel}
           assignments={assignmentsRes.data || []}
           allDepartmentCourses={coursesRes.data || []}
         />

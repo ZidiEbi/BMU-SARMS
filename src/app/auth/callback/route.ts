@@ -24,7 +24,6 @@ export async function GET(request: Request) {
   const userId = data.session.user.id
 
   // 3. Fetch role from profiles table
-  // NOTE: If this fails, check your RLS policies for "Infinite Recursion"
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('role')
@@ -33,34 +32,32 @@ export async function GET(request: Request) {
 
   if (profileError || !profile) {
     console.error("DATABASE ERROR: Could not fetch profile role:", profileError?.message)
-    // If the database is looping, it hits here and kicks you back to login
     return NextResponse.redirect(`${origin}/auth/login?error=profile_fetch_failed`)
   }
 
   console.log("LOGIN SUCCESS: User detected with role:", profile.role)
 
-  // 4. Role-based redirect (Updated with Admin logic)
-  // Ensure these paths actually exist in your src/app folder!
-  // I added .trim() just in case there are hidden spaces!
+  // 4. Role-based redirect - FIXED: Admin goes to /dashboard/admin
   const userRole = profile.role?.trim();
   switch (userRole) {
-    case 'SUPER_ADMIN': // Database has this in CAPS
-    case 'admin':       // Database has this in lowercase
-      return NextResponse.redirect(`${origin}/dashboard`) 
+    case 'SUPER_ADMIN':
+    case 'admin':
+      return NextResponse.redirect(`${origin}/dashboard/admin`) // FIXED
       
-    case 'registry':    // Changed to lowercase
+    case 'registry':
       return NextResponse.redirect(`${origin}/dashboard/registry`)
       
-    case 'lecturer':    // Changed to lowercase
+    case 'lecturer':
       return NextResponse.redirect(`${origin}/dashboard/lecturer`)
       
-    case 'hod':         // Changed to lowercase
+    case 'hod':
       return NextResponse.redirect(`${origin}/dashboard/hod`)
       
-    case 'dean':        // Changed to lowercase
+    case 'dean':
       return NextResponse.redirect(`${origin}/dashboard/dean`)
       
     default:
       console.warn("UNKNOWN ROLE:", userRole);
       return NextResponse.redirect(`${origin}/dashboard`)
   }
+}

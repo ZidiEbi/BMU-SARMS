@@ -11,72 +11,66 @@ import {
   Check,
   Printer,
   UserCheck,
-  Plus
+  Plus,
 } from 'lucide-react'
-import { useState, useEffect } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import AssignmentModal from './AssignmentModal'
 
 export default function StaffManagement({
   lecturers,
   department,
   assignments,
-  allDepartmentCourses
+  allDepartmentCourses,
 }: {
-  lecturers: any[],
-  department: string,
-  assignments: any[],
+  lecturers: any[]
+  department: string
+  assignments: any[]
   allDepartmentCourses: any[]
 }) {
   const supabase = createSupabaseBrowserClient()
   const router = useRouter()
-  const pathname = usePathname()
   const [processingId, setProcessingId] = useState<string | null>(null)
   const [selectedStaff, setSelectedStaff] = useState<any | null>(null)
 
-  useEffect(() => {
-    console.log('👥 StaffManagement mounted on:', pathname)
-  }, [pathname])
-
-  const pendingStaff = lecturers.filter(s => !s.is_verified)
-  const confirmedStaff = lecturers.filter(s => s.is_verified)
+  const pendingStaff = lecturers.filter((s) => !s.is_verified)
+  const confirmedStaff = lecturers.filter((s) => s.is_verified)
 
   const handleAction = async (id: string, updates: any, actionName: string) => {
-    console.log(`🔧 Handling ${actionName} for staff:`, id)
-    if (actionName === 'remove' && !confirm("Are you sure? This will unverify the staff and clear their department status.")) {
+    if (
+      actionName === 'remove' &&
+      !confirm('Are you sure? This will unverify the staff and clear their department status.')
+    ) {
       return
     }
 
     setProcessingId(id)
+
     const { error } = await supabase.from('profiles').update(updates).eq('id', id)
 
     if (error) {
       console.error(`❌ ${actionName} error:`, error)
       alert(`Error: ${error.message}`)
     } else {
-      console.log(`✅ ${actionName} successful, refreshing...`)
       router.refresh()
     }
+
     setProcessingId(null)
   }
 
   return (
     <div className="space-y-8 mt-8">
-
-      {/* MODAL OVERLAY - Logic for course assignment */}
       {selectedStaff && (
         <AssignmentModal
           lecturer={selectedStaff}
           availableCourses={allDepartmentCourses}
           currentAssignments={assignments}
           onClose={() => {
-            console.log('🔚 Closing assignment modal')
             setSelectedStaff(null)
           }}
         />
       )}
 
-      {/* SECTION 1: VERIFICATION REQUESTS */}
       {pendingStaff.length > 0 && (
         <div className="bg-amber-50/40 p-8 rounded-[2.5rem] border border-amber-100 shadow-sm border-dashed no-print animate-in slide-in-from-top duration-500">
           <div className="flex items-center gap-3 mb-6">
@@ -85,7 +79,9 @@ export default function StaffManagement({
             </div>
             <div>
               <h2 className="text-lg font-black text-slate-900 uppercase">Staff Join Requests</h2>
-              <p className="text-[10px] text-amber-600 font-bold uppercase tracking-widest">Awaiting Departmental Confirmation</p>
+              <p className="text-[10px] text-amber-600 font-bold uppercase tracking-widest">
+                Awaiting Departmental Confirmation
+              </p>
             </div>
           </div>
 
@@ -96,7 +92,18 @@ export default function StaffManagement({
                 staff={staff}
                 isPending={true}
                 onVerify={() => handleAction(staff.id, { is_verified: true }, 'verify')}
-                onRemove={() => handleAction(staff.id, { department: null, faculty: null, is_verified: false, profile_completed: false }, 'remove')}
+                onRemove={() =>
+                  handleAction(
+                    staff.id,
+                    {
+                      department_id: null,
+                      faculty_id: null,
+                      is_verified: false,
+                      profile_completed: false,
+                    },
+                    'remove'
+                  )
+                }
                 loading={processingId === staff.id}
               />
             ))}
@@ -104,7 +111,6 @@ export default function StaffManagement({
         </div>
       )}
 
-      {/* SECTION 2: VERIFIED STAFF LIST */}
       <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm print:border-none transition-all">
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
@@ -112,16 +118,17 @@ export default function StaffManagement({
               <Users size={20} />
             </div>
             <div>
-              <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">Departmental Staff List</h2>
-              <p className="text-[10px] text-slate-400 font-medium uppercase tracking-widest">{department} Academic Faculty</p>
+              <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">
+                Departmental Staff List
+              </h2>
+              <p className="text-[10px] text-slate-400 font-medium uppercase tracking-widest">
+                {department} Academic Faculty
+              </p>
             </div>
           </div>
 
           <button
-            onClick={() => {
-              console.log('🖨️ Printing registry')
-              window.print()
-            }}
+            onClick={() => window.print()}
             className="no-print flex items-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase hover:bg-blue-600 transition-all shadow-lg"
           >
             <Printer size={14} /> Print Registry
@@ -137,7 +144,6 @@ export default function StaffManagement({
                 isPending={false}
                 assignments={assignments}
                 onAssign={() => {
-                  console.log('📋 Opening assignment modal for:', staff.full_name)
                   setSelectedStaff(staff)
                 }}
                 onRemove={() => handleAction(staff.id, { is_verified: false }, 'remove')}
@@ -146,7 +152,9 @@ export default function StaffManagement({
             ))
           ) : (
             <div className="text-center py-20 border-2 border-dashed border-slate-50 rounded-[2rem]">
-              <p className="text-slate-300 font-bold text-sm italic uppercase tracking-widest">No verified staff members found</p>
+              <p className="text-slate-300 font-bold text-sm italic uppercase tracking-widest">
+                No verified staff members found
+              </p>
             </div>
           )}
         </div>
@@ -158,46 +166,31 @@ export default function StaffManagement({
 function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, assignments }: any) {
   const lecturerCourses = assignments?.filter((a: any) => a.lecturer_id === staff.id) || []
   const [imageError, setImageError] = useState(false)
-  const [imageLoaded, setImageLoaded] = useState(false)
 
-  // Check if avatar_url is valid (not null, not empty string, not undefined)
-  const hasValidAvatar = staff.avatar_url &&
+  const hasValidAvatar =
+    staff.avatar_url &&
     staff.avatar_url !== '' &&
     staff.avatar_url !== 'null' &&
     staff.avatar_url !== 'undefined'
-
-  console.log('🖼️ Staff avatar check:', {
-    id: staff.id,
-    name: staff.full_name,
-    avatar_url: staff.avatar_url,
-    hasValidAvatar,
-    type: typeof staff.avatar_url
-  })
 
   return (
     <div className="group relative flex flex-col bg-white rounded-[2rem] border border-slate-100 hover:border-blue-400/40 hover:shadow-xl transition-all duration-300">
       <div className="flex items-center justify-between p-4">
         <div className="flex items-center gap-4">
           <div className="relative">
-            <div className={`w-16 h-16 rounded-[1.5rem] overflow-hidden border-2 ${isPending ? 'border-amber-200' : 'border-slate-50'}`}>
+            <div
+              className={`w-16 h-16 rounded-[1.5rem] overflow-hidden border-2 ${
+                isPending ? 'border-amber-200' : 'border-slate-50'
+              }`}
+            >
               {hasValidAvatar && !imageError ? (
                 <img
                   src={staff.avatar_url}
                   alt={`${staff.full_name}'s avatar`}
                   className="w-full h-full object-cover"
                   onError={(e) => {
-                    console.error('❌ Image failed to load:', {
-                      url: staff.avatar_url,
-                      staffId: staff.id,
-                      staffName: staff.full_name
-                    })
                     setImageError(true)
-                    // Hide the broken image
                     e.currentTarget.style.display = 'none'
-                  }}
-                  onLoad={() => {
-                    console.log('✅ Image loaded successfully:', staff.id)
-                    setImageLoaded(true)
                   }}
                 />
               ) : (
@@ -206,6 +199,7 @@ function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, ass
                 </div>
               )}
             </div>
+
             {!isPending && (
               <div className="absolute -top-1 -right-1 bg-blue-600 border-2 border-white w-6 h-6 rounded-full flex items-center justify-center shadow-sm">
                 <UserCheck size={12} className="text-white" strokeWidth={3} />
@@ -217,17 +211,20 @@ function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, ass
             <h3 className="font-black text-slate-900 text-sm uppercase tracking-tight">
               {staff.title} {staff.full_name}
             </h3>
+
             <div className="flex items-center gap-3 mt-1">
               <span className="text-[9px] text-slate-400 font-black tracking-widest bg-slate-50 px-2 py-1 rounded-lg">
                 ID: {staff.staff_id || '---'}
               </span>
+
               {!isPending && (
                 <button
                   onClick={onAssign}
-                  className={`flex items-center gap-1 text-[9px] font-black uppercase px-2 py-1 rounded-lg transition-all ${lecturerCourses.length === 0
+                  className={`flex items-center gap-1 text-[9px] font-black uppercase px-2 py-1 rounded-lg transition-all ${
+                    lecturerCourses.length === 0
                       ? 'text-amber-600 bg-amber-50 hover:bg-amber-100 animate-pulse'
                       : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
-                    }`}
+                  }`}
                 >
                   <BookOpen size={10} />
                   {lecturerCourses.length} Courses Assigned
@@ -245,7 +242,13 @@ function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, ass
               disabled={loading}
               className="bg-green-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase hover:bg-green-700 disabled:opacity-50 flex items-center gap-2 shadow-md hover:shadow-green-200"
             >
-              {loading ? <Loader2 size={14} className="animate-spin" /> : <><Check size={14} strokeWidth={3} /> Verify</>}
+              {loading ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <>
+                  <Check size={14} strokeWidth={3} /> Verify
+                </>
+              )}
             </button>
           ) : (
             <button
