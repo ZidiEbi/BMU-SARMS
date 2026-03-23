@@ -53,7 +53,7 @@ export async function upsertResult(payload: {
       grade,
       points,
       remark_code: payload.remark_code ?? null,
-      status: 'DRAFT',
+      status: 'DRAFT', 
       entered_by: user.id,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'enrollment_id' })
