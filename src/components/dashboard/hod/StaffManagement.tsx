@@ -1,6 +1,5 @@
 'use client'
 
-import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import {
   UserMinus,
   ShieldAlert,
@@ -13,49 +12,115 @@ import {
   UserCheck,
   Plus,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import AssignmentModal from './AssignmentModal'
+import {
+  verifyLecturerForDepartmentAction,
+  removeLecturerFromDepartmentAction,
+} from '@/lib/actions/staff-actions'
+
+type Lecturer = {
+  id: string
+  full_name: string | null
+  staff_id: string | null
+  role?: string | null
+  is_verified: boolean | null
+  title?: string | null
+  avatar_url?: string | null
+  department_id?: string | null
+  faculty_id?: string | null
+  requested_department_id?: string | null
+}
+
+type CourseOffering = {
+  id: string
+  level: string
+  semester: string
+  session: string
+  status: string
+  lecturer_id?: string | null
+  created_at?: string | null
+  course_id: string
+  department_id: string
+  registration_count: number
+  courses?: {
+    id: string
+    code: string
+    title: string
+    unit: number
+  } | null
+}
+
+type StaffManagementProps = {
+  lecturers: Lecturer[]
+  department: string
+  offerings: CourseOffering[]
+}
 
 export default function StaffManagement({
   lecturers,
   department,
-  assignments,
-  allDepartmentCourses,
-}: {
-  lecturers: any[]
-  department: string
-  assignments: any[]
-  allDepartmentCourses: any[]
-}) {
-  const supabase = createSupabaseBrowserClient()
+  offerings,
+}: StaffManagementProps) {
   const router = useRouter()
   const [processingId, setProcessingId] = useState<string | null>(null)
-  const [selectedStaff, setSelectedStaff] = useState<any | null>(null)
+  const [selectedStaff, setSelectedStaff] = useState<Lecturer | null>(null)
 
-  const pendingStaff = lecturers.filter((s) => !s.is_verified)
-  const confirmedStaff = lecturers.filter((s) => s.is_verified)
+  const pendingStaff = useMemo(
+    () =>
+      lecturers.filter(
+        (staff) =>
+          !staff.is_verified &&
+          !staff.department_id &&
+          !!staff.requested_department_id
+      ),
+    [lecturers]
+  )
 
-  const handleAction = async (id: string, updates: any, actionName: string) => {
+  const confirmedStaff = useMemo(
+    () => lecturers.filter((staff) => !!staff.is_verified && !!staff.department_id),
+    [lecturers]
+  )
+
+  const handleVerify = async (id: string) => {
+    try {
+      setProcessingId(id)
+      await verifyLecturerForDepartmentAction(id)
+      router.refresh()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Verification failed.'
+      alert(`Error: ${message}`)
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
+  const handleRemove = async (id: string, mode: 'pending' | 'confirmed') => {
     if (
-      actionName === 'remove' &&
-      !confirm('Are you sure? This will unverify the staff and clear their department status.')
+      mode === 'pending' &&
+      !confirm('Are you sure? This will clear the pending department request for this lecturer.')
     ) {
       return
     }
 
-    setProcessingId(id)
-
-    const { error } = await supabase.from('profiles').update(updates).eq('id', id)
-
-    if (error) {
-      console.error(`❌ ${actionName} error:`, error)
-      alert(`Error: ${error.message}`)
-    } else {
-      router.refresh()
+    if (
+      mode === 'confirmed' &&
+      !confirm('Are you sure you want to remove this lecturer from the department? Their course allocations may need reassignment.')
+    ) {
+      return
     }
 
-    setProcessingId(null)
+    try {
+      setProcessingId(id)
+      await removeLecturerFromDepartmentAction(id, mode)
+      router.refresh()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Removal failed.'
+      alert(`Error: ${message}`)
+    } finally {
+      setProcessingId(null)
+    }
   }
 
   return (
@@ -63,11 +128,8 @@ export default function StaffManagement({
       {selectedStaff && (
         <AssignmentModal
           lecturer={selectedStaff}
-          availableCourses={allDepartmentCourses}
-          currentAssignments={assignments}
-          onClose={() => {
-            setSelectedStaff(null)
-          }}
+          availableOfferings={offerings}
+          onClose={() => setSelectedStaff(null)}
         />
       )}
 
@@ -78,7 +140,9 @@ export default function StaffManagement({
               <ShieldAlert size={20} />
             </div>
             <div>
-              <h2 className="text-lg font-black text-slate-900 uppercase">Staff Join Requests</h2>
+              <h2 className="text-lg font-black text-slate-900 uppercase">
+                Staff Join Requests
+              </h2>
               <p className="text-[10px] text-amber-600 font-bold uppercase tracking-widest">
                 Awaiting Departmental Confirmation
               </p>
@@ -91,20 +155,10 @@ export default function StaffManagement({
                 key={staff.id}
                 staff={staff}
                 isPending={true}
-                onVerify={() => handleAction(staff.id, { is_verified: true }, 'verify')}
-                onRemove={() =>
-                  handleAction(
-                    staff.id,
-                    {
-                      department_id: null,
-                      faculty_id: null,
-                      is_verified: false,
-                      profile_completed: false,
-                    },
-                    'remove'
-                  )
-                }
+                onVerify={() => handleVerify(staff.id)}
+                onRemove={() => handleRemove(staff.id, 'pending')}
                 loading={processingId === staff.id}
+                lecturerOfferingsCount={0}
               />
             ))}
           </div>
@@ -137,19 +191,23 @@ export default function StaffManagement({
 
         <div className="grid gap-4">
           {confirmedStaff.length > 0 ? (
-            confirmedStaff.map((staff) => (
-              <StaffRow
-                key={staff.id}
-                staff={staff}
-                isPending={false}
-                assignments={assignments}
-                onAssign={() => {
-                  setSelectedStaff(staff)
-                }}
-                onRemove={() => handleAction(staff.id, { is_verified: false }, 'remove')}
-                loading={processingId === staff.id}
-              />
-            ))
+            confirmedStaff.map((staff) => {
+              const lecturerOfferings = offerings.filter(
+                (offering) => offering.lecturer_id === staff.id
+              )
+
+              return (
+                <StaffRow
+                  key={staff.id}
+                  staff={staff}
+                  isPending={false}
+                  onAssign={() => setSelectedStaff(staff)}
+                  onRemove={() => handleRemove(staff.id, 'confirmed')}
+                  loading={processingId === staff.id}
+                  lecturerOfferingsCount={lecturerOfferings.length}
+                />
+              )
+            })
           ) : (
             <div className="text-center py-20 border-2 border-dashed border-slate-50 rounded-[2rem]">
               <p className="text-slate-300 font-bold text-sm italic uppercase tracking-widest">
@@ -163,13 +221,29 @@ export default function StaffManagement({
   )
 }
 
-function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, assignments }: any) {
-  const lecturerCourses = assignments?.filter((a: any) => a.lecturer_id === staff.id) || []
+type StaffRowProps = {
+  staff: Lecturer
+  isPending: boolean
+  onVerify?: () => void
+  onRemove?: () => void
+  onAssign?: () => void
+  loading?: boolean
+  lecturerOfferingsCount: number
+}
+
+function StaffRow({
+  staff,
+  isPending,
+  onVerify,
+  onRemove,
+  onAssign,
+  loading = false,
+  lecturerOfferingsCount,
+}: StaffRowProps) {
   const [imageError, setImageError] = useState(false)
 
   const hasValidAvatar =
-    staff.avatar_url &&
-    staff.avatar_url !== '' &&
+    !!staff.avatar_url &&
     staff.avatar_url !== 'null' &&
     staff.avatar_url !== 'undefined'
 
@@ -185,8 +259,8 @@ function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, ass
             >
               {hasValidAvatar && !imageError ? (
                 <img
-                  src={staff.avatar_url}
-                  alt={`${staff.full_name}'s avatar`}
+                  src={staff.avatar_url as string}
+                  alt={`${staff.full_name || 'Lecturer'}'s avatar`}
                   className="w-full h-full object-cover"
                   onError={(e) => {
                     setImageError(true)
@@ -209,10 +283,10 @@ function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, ass
 
           <div>
             <h3 className="font-black text-slate-900 text-sm uppercase tracking-tight">
-              {staff.title} {staff.full_name}
+              {[staff.title, staff.full_name].filter(Boolean).join(' ')}
             </h3>
 
-            <div className="flex items-center gap-3 mt-1">
+            <div className="flex items-center gap-3 mt-1 flex-wrap">
               <span className="text-[9px] text-slate-400 font-black tracking-widest bg-slate-50 px-2 py-1 rounded-lg">
                 ID: {staff.staff_id || '---'}
               </span>
@@ -221,13 +295,14 @@ function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, ass
                 <button
                   onClick={onAssign}
                   className={`flex items-center gap-1 text-[9px] font-black uppercase px-2 py-1 rounded-lg transition-all ${
-                    lecturerCourses.length === 0
+                    lecturerOfferingsCount === 0
                       ? 'text-amber-600 bg-amber-50 hover:bg-amber-100 animate-pulse'
                       : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
                   }`}
                 >
                   <BookOpen size={10} />
-                  {lecturerCourses.length} Courses Assigned
+                  {lecturerOfferingsCount} Offering
+                  {lecturerOfferingsCount === 1 ? '' : 's'} Assigned
                   <Plus size={8} strokeWidth={4} className="ml-1" />
                 </button>
               )}
@@ -255,6 +330,7 @@ function StaffRow({ staff, isPending, onVerify, onRemove, onAssign, loading, ass
               onClick={onRemove}
               disabled={loading}
               className="opacity-0 group-hover:opacity-100 bg-slate-50 text-slate-300 p-3 rounded-2xl hover:bg-red-50 hover:text-red-500 transition-all active:scale-95"
+              title="Remove lecturer from department"
             >
               {loading ? <Loader2 size={16} className="animate-spin" /> : <UserMinus size={18} />}
             </button>

@@ -17,6 +17,7 @@ export default function PendingPage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), [])
 
   const [status, setStatus] = useState<Status>('checking')
+  const [title, setTitle] = useState('Access pending')
   const [message, setMessage] = useState<string>('Checking your access…')
 
   useEffect(() => {
@@ -28,6 +29,7 @@ export default function PendingPage() {
         if (cancelled) return
 
         setStatus('checking')
+        setTitle('Access pending')
         setMessage('Checking your access…')
 
         const {
@@ -39,19 +41,23 @@ export default function PendingPage() {
 
         if (authErr) {
           setStatus('error')
+          setTitle('Something went wrong')
           setMessage(authErr.message || 'Auth check failed.')
           return
         }
 
         if (!user) {
           setStatus('not_logged_in')
+          setTitle('Session missing')
           setMessage('You are not logged in. Please sign in again.')
           return
         }
 
         const { data: profile, error: profErr } = await supabase
           .from('profiles')
-          .select('role, profile_completed, faculty_id, department_id, is_verified, is_active')
+          .select(
+            'role, profile_completed, faculty_id, department_id, requested_department_id, is_verified, is_active'
+          )
           .eq('id', user.id)
           .maybeSingle()
 
@@ -59,6 +65,7 @@ export default function PendingPage() {
 
         if (profErr || !profile) {
           setStatus('error')
+          setTitle('Something went wrong')
           setMessage(profErr?.message || 'Could not load your profile.')
           return
         }
@@ -67,32 +74,46 @@ export default function PendingPage() {
 
         if (profile.is_active === false) {
           setStatus('redirecting')
+          setTitle('Redirecting…')
           setMessage('Your account has been disabled. Redirecting…')
           router.push('/disabled')
           router.refresh()
           return
         }
 
-        // Only truly pending users should remain on this page
+        // APPROVED / ACTIVE USERS SHOULD NOT STAY HERE
         if (role !== 'pending') {
-          // Lecturer-specific verification route
-          if (role === 'lecturer' && !profile.is_verified) {
-            setStatus('redirecting')
-            setMessage('Your lecturer account is awaiting verification. Redirecting…')
-            router.push('/dashboard/lecturer/verification-pending')
-            router.refresh()
-            return
+          // Lecturer remains here until fully approved:
+          // - must be verified
+          // - must have confirmed department
+          if (role === 'lecturer') {
+            const lecturerStillPending =
+              profile.is_verified !== true || !profile.department_id
+
+            if (lecturerStillPending) {
+              setStatus('waiting')
+              setTitle('Lecturer approval pending')
+              setMessage(
+                profile.requested_department_id
+                  ? 'Your lecturer account has been created successfully and your department request is awaiting Head of Department approval. Full lecturer access will be enabled once your request is approved.'
+                  : 'Your lecturer account is not yet fully approved. Please wait while your access is being finalized.'
+              )
+              return
+            }
           }
 
           setStatus('redirecting')
-          setMessage('Your account is already assigned. Redirecting to your dashboard…')
+          setTitle('Redirecting…')
+          setMessage('Your account is active. Redirecting to your dashboard…')
           router.push('/dashboard')
           router.refresh()
           return
         }
 
+        // CLASSIC PENDING ROLE USERS
         if (profile.profile_completed !== true) {
           setStatus('redirecting')
+          setTitle('Redirecting…')
           setMessage('You need to complete your profile. Redirecting…')
           router.push('/complete-profile')
           router.refresh()
@@ -100,12 +121,14 @@ export default function PendingPage() {
         }
 
         setStatus('waiting')
+        setTitle('Access pending')
         setMessage(
-          'Your profile is submitted. Please wait for an administrator to assign your role, faculty, and department where required.'
+          'Your profile has been submitted successfully. Please wait for an administrator to assign your role and complete the required academic placement details.'
         )
       } catch (e: any) {
         if (cancelled) return
         setStatus('error')
+        setTitle('Something went wrong')
         setMessage(e?.message || 'Something went wrong while checking your access.')
       }
     }
@@ -119,21 +142,12 @@ export default function PendingPage() {
     }
   }, [router, supabase])
 
-  const title =
-    status === 'redirecting'
-      ? 'Redirecting…'
-      : status === 'error'
-        ? 'Something went wrong'
-        : status === 'not_logged_in'
-          ? 'Session missing'
-          : 'Access pending'
-
   return (
-    <div className="min-h-screen flex items-center justify-center text-center px-6">
-      <div className="max-w-md w-full bg-white/80 border border-slate-100 rounded-2xl p-8 shadow-xl">
+    <div className="min-h-screen flex items-center justify-center text-center px-6 bg-gradient-to-br from-blue-50 to-white">
+      <div className="max-w-md w-full bg-white/90 border border-slate-100 rounded-3xl p-8 shadow-2xl">
         <h1 className="text-2xl font-black text-slate-900 mb-3">{title}</h1>
 
-        <p className="text-slate-600 mb-6">{message}</p>
+        <p className="text-slate-600 mb-6 leading-relaxed">{message}</p>
 
         <div className="flex gap-3 justify-center">
           {status === 'not_logged_in' && (

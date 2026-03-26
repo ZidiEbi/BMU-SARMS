@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, Suspense } from "react"
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Loader2, CheckCircle, Edit3 } from "lucide-react"
+import { Loader2, CheckCircle, Edit3, Info } from "lucide-react"
 
 type ProfileRow = {
   id: string
@@ -27,12 +27,10 @@ function AssignmentForm() {
   const searchParams = useSearchParams()
   const editId = searchParams.get("edit")
 
-  // Data Lists
   const [users, setUsers] = useState<ProfileRow[]>([])
   const [faculties, setFaculties] = useState<FacultyRow[]>([])
   const [departments, setDepartments] = useState<DeptRow[]>([])
 
-  // Form State
   const [selectedUser, setSelectedUser] = useState("")
   const [selectedRole, setSelectedRole] = useState("")
   const [selectedFaculty, setSelectedFaculty] = useState("")
@@ -43,7 +41,6 @@ function AssignmentForm() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
 
-  // Initial data fetch
   useEffect(() => {
     const fetchInstitutionalData = async () => {
       setIsFetching(true)
@@ -88,7 +85,6 @@ function AssignmentForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Edit mode (from URL ?edit=)
   useEffect(() => {
     if (!editId || users.length === 0) return
     const userToEdit = users.find((u) => u.id === editId)
@@ -106,33 +102,35 @@ function AssignmentForm() {
   }, [departments, selectedFaculty])
 
   const roleNorm = selectedRole.trim()
-  const isDean = roleNorm === "dean"
-  const isAdminRole = roleNorm === "admin" || roleNorm === "SUPER_ADMIN"
-  const requiresFaculty = !isAdminRole
-  const requiresDept = !isAdminRole && !isDean
+  const roleLower = roleNorm.toLowerCase()
 
-  // Keep form consistent when faculty/role changes
+  const isSuperAdminRole = roleNorm.toUpperCase() === "SUPER_ADMIN"
+  const isAdminRole = roleLower === "admin" || isSuperAdminRole
+  const isDean = roleLower === "dean"
+  const isRegistry = roleLower === "registry"
+  const isLecturer = roleLower === "lecturer"
+  const isHod = roleLower === "hod"
+
+  const requiresFaculty = !(isAdminRole || isRegistry)
+  const requiresDept = !(isAdminRole || isRegistry || isDean)
+
   useEffect(() => {
-    // If admin/super admin: clear faculty + dept
-    if (isAdminRole) {
+    if (isAdminRole || isRegistry) {
       if (selectedFaculty) setSelectedFaculty("")
       if (selectedDepartment) setSelectedDepartment("")
       return
     }
 
-    // If dean: dept should be empty
     if (isDean && selectedDepartment) {
       setSelectedDepartment("")
       return
     }
 
-    // If faculty cleared: clear dept
     if (!selectedFaculty) {
       if (selectedDepartment) setSelectedDepartment("")
       return
     }
 
-    // If faculty changed: ensure dept belongs to faculty
     if (selectedDepartment) {
       const ok = departments.some(
         (d) => d.id === selectedDepartment && d.faculty_id === selectedFaculty
@@ -141,87 +139,130 @@ function AssignmentForm() {
     }
   }, [
     isAdminRole,
+    isRegistry,
     isDean,
     selectedFaculty,
     selectedDepartment,
     departments,
-    selectedRole,
   ])
 
+  const workflowNote = useMemo(() => {
+    if (!selectedRole) return null
+
+    if (isLecturer) {
+      return {
+        tone: "bg-blue-50 border-blue-100 text-blue-700",
+        text: "Admin lecturer assignment is treated as a direct confirmed institutional placement. It does not enter the HOD join-request workflow. Once assigned here with faculty and department, the lecturer becomes active immediately.",
+      }
+    }
+
+    if (isRegistry) {
+      return {
+        tone: "bg-purple-50 border-purple-100 text-purple-700",
+        text: "Registry accounts do not require faculty or department assignment. This role is activated centrally and does not pass through departmental approval.",
+      }
+    }
+
+    if (isHod) {
+      return {
+        tone: "bg-amber-50 border-amber-100 text-amber-700",
+        text: "HOD assignment creates a department-bound authority. Faculty and department must match correctly because the HOD will manage lecturer onboarding and departmental academic operations.",
+      }
+    }
+
+    if (isDean) {
+      return {
+        tone: "bg-emerald-50 border-emerald-100 text-emerald-700",
+        text: "Dean assignment is faculty-level. A faculty is required, but department is not.",
+      }
+    }
+
+    if (isAdminRole) {
+      return {
+        tone: "bg-slate-50 border-slate-200 text-slate-700",
+        text: "Admin-level roles are institution-wide and do not require faculty or department assignment.",
+      }
+    }
+
+    return null
+  }, [selectedRole, isLecturer, isRegistry, isHod, isDean, isAdminRole])
+
   const handleAssign = async () => {
-  // Normalize role
-  const role = selectedRole.trim()
-  const roleLower = role.toLowerCase()
+    const role = selectedRole.trim()
+    const roleLower = role.toLowerCase()
 
-  const isSuperAdmin = role.toUpperCase() === "SUPER_ADMIN"
-  const isAdmin = roleLower === "admin"
-  const isDean = roleLower === "dean"
-  const requiresFaculty = !(isAdmin || isSuperAdmin)
-  const requiresDept = !(isAdmin || isSuperAdmin || isDean)
+    const isSuperAdmin = role.toUpperCase() === "SUPER_ADMIN"
+    const isAdmin = roleLower === "admin"
+    const isDean = roleLower === "dean"
+    const isRegistry = roleLower === "registry"
 
-  // Base checks
-  if (!selectedUser || !role) {
-    alert("Incomplete Assignment Data: select staff + role.")
-    return
-  }
-  if (requiresFaculty && !selectedFaculty) {
-    alert("Please select a Faculty (required for this role).")
-    return
-  }
-  if (requiresDept && !selectedDepartment) {
-    alert("Please select a Department (required for this role).")
-    return
-  }
+    const requiresFaculty = !(isAdmin || isSuperAdmin || isRegistry)
+    const requiresDept = !(isAdmin || isSuperAdmin || isRegistry || isDean)
 
-  setLoading(true)
-  try {
-    const payload: any = {
-      userId: selectedUser,
-      role: role, // server normalizes it
-    }
-
-    if (requiresFaculty) payload.facultyId = selectedFaculty
-    if (requiresDept) payload.departmentId = selectedDepartment
-
-    console.log("ASSIGN STAFF PAYLOAD:", payload)
-
-    const res = await fetch("/api/admin/assign-staff", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      cache: "no-store",
-    })
-
-    const raw = await res.text()
-    let json: any = null
-    try {
-      json = raw ? JSON.parse(raw) : null
-    } catch {
-      json = { raw }
-    }
-
-    if (!res.ok) {
-      console.error("ASSIGN STAFF ERROR:", {
-        status: res.status,
-        statusText: res.statusText,
-        body: json,
-      })
-      alert(json?.error || json?.message || `Update Failed (${res.status})`)
+    if (!selectedUser || !role) {
+      alert("Incomplete Assignment Data: select staff + role.")
       return
     }
 
-    alert(editId ? "Staff Authority Updated." : "Staff Member Assigned.")
+    if (requiresFaculty && !selectedFaculty) {
+      alert("Please select a Faculty (required for this role).")
+      return
+    }
 
-    setSelectedUser("")
-    setSelectedRole("")
-    setSelectedFaculty("")
-    setSelectedDepartment("")
-    router.push("/dashboard/admin/roles")
-    router.refresh()
-  } finally {
-    setLoading(false)
+    if (requiresDept && !selectedDepartment) {
+      alert("Please select a Department (required for this role).")
+      return
+    }
+
+    setLoading(true)
+    try {
+      const payload: any = {
+        userId: selectedUser,
+        role,
+      }
+
+      if (requiresFaculty) payload.facultyId = selectedFaculty
+      if (requiresDept) payload.departmentId = selectedDepartment
+
+      console.log("ASSIGN STAFF PAYLOAD:", payload)
+
+      const res = await fetch("/api/admin/assign-staff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        cache: "no-store",
+      })
+
+      const raw = await res.text()
+      let json: any = null
+      try {
+        json = raw ? JSON.parse(raw) : null
+      } catch {
+        json = { raw }
+      }
+
+      if (!res.ok) {
+        console.error("ASSIGN STAFF ERROR:", {
+          status: res.status,
+          statusText: res.statusText,
+          body: json,
+        })
+        alert(json?.error || json?.message || `Update Failed (${res.status})`)
+        return
+      }
+
+      alert(editId ? "Staff Authority Updated." : "Staff Member Assigned.")
+
+      setSelectedUser("")
+      setSelectedRole("")
+      setSelectedFaculty("")
+      setSelectedDepartment("")
+      router.push("/dashboard/admin/roles")
+      router.refresh()
+    } finally {
+      setLoading(false)
+    }
   }
-}
 
   if (isFetching) {
     return (
@@ -241,19 +282,18 @@ function AssignmentForm() {
         </div>
       )}
 
-      {/* Toast */}
       {errorMsg && (
         <div className="p-3 bg-red-50 border border-red-100 rounded-xl">
           <p className="text-[11px] font-bold text-red-700">{errorMsg}</p>
         </div>
       )}
+
       {okMsg && (
         <div className="p-3 bg-green-50 border border-green-100 rounded-xl">
           <p className="text-[11px] font-bold text-green-700">{okMsg}</p>
         </div>
       )}
 
-      {/* Staff */}
       <div className="space-y-1">
         <label className="text-[9px] font-black uppercase text-slate-400 ml-1">
           Staff Identity
@@ -275,7 +315,6 @@ function AssignmentForm() {
         </select>
       </div>
 
-      {/* Role */}
       <div className="space-y-1">
         <label className="text-[9px] font-black uppercase text-slate-400 ml-1">
           Authority Designation
@@ -287,6 +326,7 @@ function AssignmentForm() {
         >
           <option value="">Select Designation...</option>
           <option value="lecturer">Lecturer</option>
+          <option value="registry">Registry</option>
           <option value="hod">HOD</option>
           <option value="dean">Dean</option>
           <option value="admin">Admin</option>
@@ -294,7 +334,15 @@ function AssignmentForm() {
         </select>
       </div>
 
-      {/* Faculty */}
+      {workflowNote && (
+        <div className={`rounded-2xl border p-4 ${workflowNote.tone}`}>
+          <div className="flex items-start gap-2">
+            <Info size={16} className="mt-0.5 shrink-0" />
+            <p className="text-[11px] font-medium leading-relaxed">{workflowNote.text}</p>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-1">
         <label className="text-[9px] font-black uppercase text-slate-400 ml-1">
           Faculty
@@ -303,10 +351,10 @@ function AssignmentForm() {
           className="w-full p-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:bg-white focus:border-blue-500 outline-none font-bold text-slate-700 text-sm disabled:opacity-40"
           value={selectedFaculty}
           onChange={(e) => setSelectedFaculty(e.target.value)}
-          disabled={isAdminRole}
+          disabled={isAdminRole || isRegistry}
         >
           <option value="">
-            {isAdminRole ? "Not required for this role" : "Select Faculty..."}
+            {isAdminRole || isRegistry ? "Not required for this role" : "Select Faculty..."}
           </option>
           {faculties.map((f) => (
             <option key={f.id} value={f.id}>
@@ -316,8 +364,7 @@ function AssignmentForm() {
         </select>
       </div>
 
-      {/* Department (hidden/disabled when not needed) */}
-      {!isAdminRole && !isDean && (
+      {!isAdminRole && !isDean && !isRegistry && (
         <div className="space-y-1">
           <label className="text-[9px] font-black uppercase text-slate-400 ml-1">
             Department

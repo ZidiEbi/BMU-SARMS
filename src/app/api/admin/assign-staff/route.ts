@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
-const allowedRoles = ["lecturer", "hod", "dean", "admin", "SUPER_ADMIN"] as const
+const allowedRoles = ["lecturer", "registry", "hod", "dean", "admin", "SUPER_ADMIN"] as const
 type AllowedRole = (typeof allowedRoles)[number]
 
 function jsonError(message: string, status = 400, extra?: Record<string, any>) {
@@ -14,10 +14,18 @@ function normalizeIncomingRole(input: any): AllowedRole | null {
   if (!raw) return null
 
   if (raw.toUpperCase() === "SUPER_ADMIN") return "SUPER_ADMIN"
+
   const lower = raw.toLowerCase()
-  if (lower === "lecturer" || lower === "hod" || lower === "dean" || lower === "admin") {
+  if (
+    lower === "lecturer" ||
+    lower === "registry" ||
+    lower === "hod" ||
+    lower === "dean" ||
+    lower === "admin"
+  ) {
     return lower as AllowedRole
   }
+
   return null
 }
 
@@ -30,7 +38,9 @@ export async function POST(req: Request) {
       error: authErr,
     } = await supabase.auth.getUser()
 
-    if (authErr || !user) return jsonError("Not authenticated", 401, { message: authErr?.message })
+    if (authErr || !user) {
+      return jsonError("Not authenticated", 401, { message: authErr?.message })
+    }
 
     // 2) Load requester role (via session client)
     const { data: me, error: meErr } = await supabase
@@ -39,7 +49,9 @@ export async function POST(req: Request) {
       .eq("id", user.id)
       .maybeSingle()
 
-    if (meErr || !me) return jsonError("Profile not found", 403, { message: meErr?.message })
+    if (meErr || !me) {
+      return jsonError("Profile not found", 403, { message: meErr?.message })
+    }
 
     const requesterRole = String(me.role ?? "").trim()
     const requesterRoleUpper = requesterRole.toUpperCase()
@@ -61,7 +73,6 @@ export async function POST(req: Request) {
     const userId = String(body.userId ?? "").trim()
     const role = normalizeIncomingRole(body.role)
 
-    // allow optional based on role rules
     const facultyIdRaw = body.facultyId
     const departmentIdRaw = body.departmentId
 
@@ -82,6 +93,10 @@ export async function POST(req: Request) {
     }
 
     // Role requirements
+    // - registry: no faculty, no dept
+    // - admin / SUPER_ADMIN: no faculty, no dept
+    // - dean: faculty yes, dept no
+    // - hod / lecturer: faculty yes, dept yes
     const requiresFaculty = role === "lecturer" || role === "hod" || role === "dean"
     const requiresDept = role === "lecturer" || role === "hod"
 
@@ -91,6 +106,7 @@ export async function POST(req: Request) {
     if (requiresFaculty && !facultyId) {
       return jsonError("Missing facultyId for this role", 400, { role, required: ["facultyId"] })
     }
+
     if (requiresDept && !departmentId) {
       return jsonError("Missing departmentId for this role", 400, { role, required: ["departmentId"] })
     }
@@ -105,7 +121,7 @@ export async function POST(req: Request) {
 
     const adminDb = createClient(url, serviceKey, { auth: { persistSession: false } })
 
-    // 5) Validate dept belongs to faculty ONLY when dept is required/present
+    // 5) Validate department belongs to faculty only when department is required
     if (requiresDept) {
       const { data: dept, error: deptErr } = await adminDb
         .from("departments")
@@ -131,24 +147,65 @@ export async function POST(req: Request) {
       }
     }
 
-    // 6) Build update payload
+    // 6) Load current target profile so updates can be workflow-aware
+    const { data: targetProfile, error: targetErr } = await adminDb
+      .from("profiles")
+      .select("id, role, requested_department_id, department_id")
+      .eq("id", userId)
+      .maybeSingle()
+
+    if (targetErr || !targetProfile) {
+      return jsonError("Target profile not found", 404, { message: targetErr?.message })
+    }
+
+    // 7) Build update payload
     const updatePayload: any = {
       role, // store SUPER_ADMIN exactly, others lowercase
       updated_at: new Date().toISOString(),
       profile_completed: true,
     }
 
-    if (requiresFaculty) updatePayload.faculty_id = facultyId
-    else updatePayload.faculty_id = null
+    if (requiresFaculty) {
+      updatePayload.faculty_id = facultyId
+    } else {
+      updatePayload.faculty_id = null
+    }
 
-    if (requiresDept) updatePayload.department_id = departmentId
-    else updatePayload.department_id = null
+    if (role === "lecturer") {
+      // Admin direct assignment = confirmed institutional assignment
+      updatePayload.department_id = departmentId
+      updatePayload.requested_department_id = null
+      updatePayload.is_verified = true
+    } else if (role === "hod") {
+      updatePayload.department_id = departmentId
+      updatePayload.requested_department_id = null
+      updatePayload.is_verified = true
+    } else if (role === "dean") {
+      updatePayload.department_id = null
+      updatePayload.requested_department_id = null
+      updatePayload.is_verified = true
+    } else if (role === "registry") {
+      updatePayload.department_id = null
+      updatePayload.requested_department_id = null
+      updatePayload.faculty_id = null
+      updatePayload.is_verified = true
+    } else if (role === "admin" || role === "SUPER_ADMIN") {
+      updatePayload.department_id = null
+      updatePayload.requested_department_id = null
+      updatePayload.faculty_id = null
+      updatePayload.is_verified = true
+    } else {
+      updatePayload.department_id = requiresDept ? departmentId : null
+      updatePayload.requested_department_id = null
+    }
 
     const { data: updated, error: updErr } = await adminDb
       .from("profiles")
       .update(updatePayload)
       .eq("id", userId)
-      .select("id, role, faculty_id, department_id, profile_completed")
+      .select(
+        "id, role, faculty_id, department_id, requested_department_id, is_verified, profile_completed"
+      )
       .maybeSingle()
 
     if (updErr) {
@@ -163,7 +220,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, updated })
   } catch (e: any) {
-    // this catches unexpected crashes and still returns a readable error
     return jsonError("Server error", 500, { message: e?.message, stack: e?.stack })
   }
 }

@@ -1,13 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard,
   Users,
-  ClipboardList,
   LogOut,
   ChevronLeft,
   Menu,
@@ -15,6 +14,9 @@ import {
   ShieldCheck,
   Activity,
   BookOpen,
+  FileCheck2,
+  Files,
+  Layers3,
 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 
@@ -26,6 +28,12 @@ type SidebarRole =
   | 'SUPER_ADMIN'
   | 'pending'
   | 'student'
+
+type NavItem = {
+  name: string
+  href: string
+  icon: React.ComponentType<{ size?: number; className?: string }>
+}
 
 function normalizeRole(role: unknown): SidebarRole {
   if (!role) return 'pending'
@@ -46,23 +54,51 @@ export default function Sidebar({
   const supabase = createBrowserClient()
 
   const role = normalizeRole(initialRole)
-  const rolePath =
-    role === 'SUPER_ADMIN' || role === 'admin' ? 'admin' : role
+  const isAdmin = role === 'admin' || role === 'SUPER_ADMIN'
+  const rolePath = isAdmin ? 'admin' : role
 
-  const navLinks = [
-    { name: 'Dashboard', href: `/dashboard/${rolePath}`, icon: LayoutDashboard },
-  ]
+  const navLinks = useMemo<NavItem[]>(() => {
+    const links: NavItem[] = [
+      { name: 'Dashboard', href: `/dashboard/${rolePath}`, icon: LayoutDashboard },
+    ]
 
-  if (role === 'hod' || role === 'SUPER_ADMIN' || role === 'admin') {
-    navLinks.push({ name: 'Staff Registry', href: '/dashboard/hod#staff', icon: Users })
-    navLinks.push({ name: 'Course Catalog', href: '/dashboard/hod#courses', icon: BookOpen })
-    navLinks.push({ name: 'Allocations', href: '/dashboard/hod#allocations', icon: ClipboardList })
-  }
+    if (role === 'hod') {
+      links.push(
+        { name: 'Verifications', href: '/dashboard/hod/verifications', icon: Users },
+        { name: 'Offerings', href: '/dashboard/hod/offerings', icon: BookOpen },
+        { name: 'Results Review', href: '/dashboard/hod/results', icon: FileCheck2 },
+        { name: 'Allocations', href: '/dashboard/hod/allocations', icon: Layers3 },
+        { name: 'Reports', href: '/dashboard/hod/reports', icon: Files }
+      )
+    }
 
-  if (role === 'admin' || role === 'SUPER_ADMIN') {
-    navLinks.push({ name: 'Role Control', href: '/dashboard/admin/roles', icon: ShieldCheck })
-    navLinks.push({ name: 'System Logs', href: '/dashboard/admin/logs', icon: Activity })
-  }
+    if (isAdmin) {
+      links.push(
+        { name: 'HOD Overview', href: '/dashboard/hod', icon: BookOpen },
+        { name: 'Verifications', href: '/dashboard/hod/verifications', icon: Users },
+        { name: 'Offerings', href: '/dashboard/hod/offerings', icon: BookOpen },
+        { name: 'Results Review', href: '/dashboard/hod/results', icon: FileCheck2 },
+        { name: 'Allocations', href: '/dashboard/hod/allocations', icon: Layers3 },
+        { name: 'Reports', href: '/dashboard/hod/reports', icon: Files },
+        { name: 'Role Control', href: '/dashboard/admin/roles', icon: ShieldCheck },
+        { name: 'System Logs', href: '/dashboard/admin/logs', icon: Activity }
+      )
+    }
+
+    if (role === 'lecturer') {
+      links.push(
+        { name: 'My Offerings', href: '/dashboard/lecturer', icon: BookOpen }
+      )
+    }
+
+    if (role === 'dean') {
+      links.push(
+        { name: 'Faculty Overview', href: '/dashboard/dean', icon: Files }
+      )
+    }
+
+    return links
+  }, [role, rolePath, isAdmin])
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
@@ -70,37 +106,24 @@ export default function Sidebar({
     router.refresh()
   }
 
-  const handleHashLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
-    if (!href.includes('#')) return
-
-    e.preventDefault()
-
-    const [path, hash] = href.split('#')
-    router.push(path)
-
-    setTimeout(() => {
-      const element = document.getElementById(hash)
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth' })
-      }
-    }, 150)
-  }
-
   const isActiveLink = (href: string) => {
-    if (href.includes('#')) {
-      const [path] = href.split('#')
-      return pathname === path
-    }
-
     if (href === '/dashboard/admin' && pathname.startsWith('/dashboard/admin')) {
       return true
     }
 
-    if (href === '/dashboard/hod' && pathname.startsWith('/dashboard/hod')) {
+    if (href === '/dashboard/hod' && pathname === '/dashboard/hod') {
+      return true
+    }
+
+    if (href !== '/dashboard/hod' && href.startsWith('/dashboard/hod') && pathname.startsWith(href)) {
       return true
     }
 
     if (href === '/dashboard/lecturer' && pathname.startsWith('/dashboard/lecturer')) {
+      return true
+    }
+
+    if (href === '/dashboard/dean' && pathname.startsWith('/dashboard/dean')) {
       return true
     }
 
@@ -113,9 +136,9 @@ export default function Sidebar({
 
   return (
     <motion.aside
-      animate={{ width: isCollapsed ? 90 : 280 }}
-      className="bg-white border-r border-slate-200 flex flex-col min-h-screen sticky top-0 z-50 shadow-sm"
-    >
+  animate={{ width: isCollapsed ? 90 : 280 }}
+  className="fixed left-0 top-0 h-screen bg-white border-r border-slate-200 flex flex-col z-50 shadow-sm"
+>
       <div className="p-6 flex items-center justify-between border-b border-slate-50">
         <AnimatePresence mode="wait">
           {!isCollapsed && (
@@ -156,7 +179,6 @@ export default function Sidebar({
               key={`${link.name}-${index}`}
               href={link.href}
               prefetch={false}
-              onClick={(e) => handleHashLinkClick(e, link.href)}
             >
               <div
                 className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl transition-all duration-300 relative group ${
