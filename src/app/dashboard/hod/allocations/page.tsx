@@ -1,12 +1,127 @@
 import Link from 'next/link'
-import { ArrowLeft, Layers3, UserCheck, UserX } from 'lucide-react'
+import { ArrowLeft, Layers3, UserCheck, UserX, History } from 'lucide-react'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { getHODPageData } from '@/lib/hod/getHODPageData'
+import HODAllocationsBoard from '@/components/dashboard/hod/HODAllocationsBoard'
+
+type AuditLogRow = {
+  id: string
+  offering_id: string
+  previous_lecturer_id: string | null
+  new_lecturer_id: string | null
+  actor_id: string
+  actor_role: string
+  action: string
+  note: string | null
+  created_at: string
+}
+
+type RecentAllocationActivity = {
+  id: string
+  created_at: string
+  action: string
+  note: string | null
+  actor_name: string
+  course_code: string
+  course_title: string
+  previous_lecturer_name: string | null
+  new_lecturer_name: string | null
+}
 
 export default async function HODAllocationsPage() {
-  const { isAdmin, departmentLabel, offerings } = await getHODPageData()
+  const { isAdmin, departmentLabel, offerings, lecturers, profile } = await getHODPageData()
+  const supabase = await createSupabaseServerClient()
 
   const assignedOfferings = offerings.filter((offering) => Boolean(offering.lecturer_id))
   const unassignedOfferings = offerings.filter((offering) => !offering.lecturer_id)
+
+  const offeringIds = offerings.map((offering) => offering.id)
+
+  let recentActivity: RecentAllocationActivity[] = []
+
+  if (offeringIds.length > 0) {
+    const { data: logs, error: logsError } = await supabase
+      .from('allocation_audit_logs')
+      .select(
+        'id, offering_id, previous_lecturer_id, new_lecturer_id, actor_id, actor_role, action, note, created_at'
+      )
+      .in('offering_id', offeringIds)
+      .order('created_at', { ascending: false })
+      .limit(20)
+
+    if (logsError) {
+      throw new Error(`Failed to load allocation activity: ${logsError.message}`)
+    }
+
+    const auditRows = (logs ?? []) as AuditLogRow[]
+
+    const profileIds = Array.from(
+      new Set(
+        auditRows.flatMap((row) => [
+          row.actor_id,
+          row.previous_lecturer_id,
+          row.new_lecturer_id,
+        ]).filter(Boolean)
+      )
+    ) as string[]
+
+    const offeringIdSet = Array.from(new Set(auditRows.map((row) => row.offering_id)))
+
+    const [{ data: people }, { data: offeringRows }] = await Promise.all([
+      profileIds.length > 0
+        ? supabase
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', profileIds)
+        : Promise.resolve({ data: [] as { id: string; full_name: string | null }[], error: null }),
+      offeringIdSet.length > 0
+        ? supabase
+            .from('course_offerings')
+            .select(`
+              id,
+              courses!course_offerings_course_id_fkey (
+                code,
+                title
+              )
+            `)
+            .in('id', offeringIdSet)
+        : Promise.resolve({ data: [] as any[], error: null }),
+    ])
+
+    const personNameById = new Map<string, string>()
+    for (const person of people ?? []) {
+      personNameById.set(person.id, person.full_name ?? 'Unknown User')
+    }
+
+    const offeringCourseById = new Map<string, { code: string; title: string }>()
+    for (const offering of offeringRows ?? []) {
+      const course = Array.isArray(offering.courses) ? offering.courses[0] : offering.courses
+      offeringCourseById.set(offering.id, {
+        code: course?.code ?? 'COURSE',
+        title: course?.title ?? 'Untitled Course',
+      })
+    }
+
+    recentActivity = auditRows.map((row) => {
+      const course = offeringCourseById.get(row.offering_id)
+
+      return {
+        id: row.id,
+        created_at: row.created_at,
+        action: row.action,
+        note: row.note,
+        actor_name: personNameById.get(row.actor_id) ?? 'Unknown User',
+        course_code: course?.code ?? 'COURSE',
+        course_title: course?.title ?? 'Untitled Course',
+        previous_lecturer_name: row.previous_lecturer_id
+          ? personNameById.get(row.previous_lecturer_id) ?? 'Unknown Lecturer'
+          : null,
+        new_lecturer_name: row.new_lecturer_id
+          ? personNameById.get(row.new_lecturer_id) ?? 'Unknown Lecturer'
+          : null,
+      }
+    })
+  }
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
@@ -28,7 +143,7 @@ export default async function HODAllocationsPage() {
               Lecturer Allocations
             </h1>
             <p className="text-slate-500 text-sm font-medium mt-2">
-              See which offerings already have lecturers and which still need assignment attention.
+              Allocate quickly, review recent changes, and move through the obvious next staffing actions for this session.
             </p>
           </div>
 
@@ -42,10 +157,13 @@ export default async function HODAllocationsPage() {
             <span className="px-4 py-3 rounded-2xl bg-amber-50 border border-amber-200 text-sm font-black text-amber-700">
               {unassignedOfferings.length} unassigned
             </span>
+            <span className="px-4 py-3 rounded-2xl bg-blue-50 border border-blue-200 text-sm font-black text-blue-700">
+              {lecturers.filter((lecturer) => lecturer.is_verified).length} verified lecturers
+            </span>
           </div>
         </div>
 
-        <div className="p-6 flex items-center gap-3">
+        <div className="p-6 flex flex-wrap items-center gap-3">
           <Link
             href="/dashboard/hod"
             className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -54,106 +172,28 @@ export default async function HODAllocationsPage() {
             Back to Overview
           </Link>
 
-          <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+          <Link
+            href="/dashboard/hod/offerings"
+            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
             <Layers3 size={16} />
-            Use this page to spot staffing gaps before publication and result entry.
+            Review all offerings
+          </Link>
+
+          <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+            <History size={16} />
+            Recent allocation activity now appears below.
           </div>
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-2">
-        <div className="bg-white border border-slate-100 rounded-[2.5rem] shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-slate-100 flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-green-50 text-green-700">
-              <UserCheck size={18} />
-            </div>
-            <div>
-              <h2 className="text-lg font-black text-slate-900">Assigned Offerings</h2>
-              <p className="text-sm text-slate-500 font-medium">
-                Offerings that already have lecturer ownership.
-              </p>
-            </div>
-          </div>
-
-          <div className="divide-y divide-slate-100">
-            {assignedOfferings.length === 0 ? (
-              <div className="p-8 text-sm font-semibold text-slate-500">
-                No assigned offerings found.
-              </div>
-            ) : (
-              assignedOfferings.map((offering) => (
-                <div key={offering.id} className="p-5 flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                      {offering.courses?.code ?? 'COURSE'}
-                    </p>
-                    <h3 className="text-base font-black text-slate-900 mt-1">
-                      {offering.courses?.title ?? 'Untitled Course'}
-                    </h3>
-                    <p className="text-sm text-slate-500 font-medium mt-1">
-                      {offering.session} • {offering.semester} • {offering.level} Level
-                    </p>
-                  </div>
-
-                  <div className="text-right">
-                    <p className="text-xs uppercase tracking-widest text-slate-400 font-black">
-                      Lecturer
-                    </p>
-                    <p className="text-sm font-bold text-slate-900 mt-1">
-                      {offering.lecturer?.full_name ?? 'Assigned'}
-                    </p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-100 rounded-[2.5rem] shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-slate-100 flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-amber-50 text-amber-700">
-              <UserX size={18} />
-            </div>
-            <div>
-              <h2 className="text-lg font-black text-slate-900">Unassigned Offerings</h2>
-              <p className="text-sm text-slate-500 font-medium">
-                These offerings still need lecturer allocation.
-              </p>
-            </div>
-          </div>
-
-          <div className="divide-y divide-slate-100">
-            {unassignedOfferings.length === 0 ? (
-              <div className="p-8 text-sm font-semibold text-slate-500">
-                No unassigned offerings found.
-              </div>
-            ) : (
-              unassignedOfferings.map((offering) => (
-                <div key={offering.id} className="p-5 flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                      {offering.courses?.code ?? 'COURSE'}
-                    </p>
-                    <h3 className="text-base font-black text-slate-900 mt-1">
-                      {offering.courses?.title ?? 'Untitled Course'}
-                    </h3>
-                    <p className="text-sm text-slate-500 font-medium mt-1">
-                      {offering.session} • {offering.semester} • {offering.level} Level
-                    </p>
-                  </div>
-
-                  <Link
-                    href={`/dashboard/hod/offerings/${offering.id}`}
-                    className="inline-flex items-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    Open
-                  </Link>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </section>
+      <HODAllocationsBoard
+        assignedOfferings={assignedOfferings}
+        unassignedOfferings={unassignedOfferings}
+        lecturers={lecturers}
+        recentActivity={recentActivity}
+        actorName={profile.full_name ?? 'HOD'}
+      />
     </div>
   )
 }

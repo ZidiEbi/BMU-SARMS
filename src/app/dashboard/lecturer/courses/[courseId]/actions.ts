@@ -18,6 +18,25 @@ type SubmissionRow = {
   grade: string | null
 }
 
+const FINALIZED_RESULT_STATUSES = new Set(['DEAN_APPROVED', 'LOCKED'])
+const HIGHER_REVIEW_CONTROL_STATUSES = new Set([
+  'HOD_APPROVED',
+  'DEAN_APPROVED',
+  'LOCKED',
+])
+
+function normalizeStatus(status: string | null | undefined) {
+  return String(status ?? '').trim().toUpperCase()
+}
+
+function isFinalizedStatus(status: string | null | undefined) {
+  return FINALIZED_RESULT_STATUSES.has(normalizeStatus(status))
+}
+
+function isUnderHigherReviewControl(status: string | null | undefined) {
+  return HIGHER_REVIEW_CONTROL_STATUSES.has(normalizeStatus(status))
+}
+
 function computeGrade(total: number) {
   if (total >= 70) return 'A'
   if (total >= 60) return 'B'
@@ -110,6 +129,86 @@ async function insertAuditLogs(
   }
 }
 
+function buildSubmissionRows(offering: any): SubmissionRow[] {
+  return (offering.course_registrations ?? []).map((registration: any) => {
+    const result = Array.isArray(registration.results)
+      ? registration.results[0]
+      : registration.results
+
+    return {
+      registrationId: registration.id,
+      resultId: result?.id ?? null,
+      status: result?.status ?? null,
+      caScore: result?.ca_score ?? null,
+      examScore: result?.exam_score ?? null,
+      totalScore: result?.score ?? null,
+      grade: result?.grade ?? null,
+    }
+  })
+}
+
+function validateRowsForSubmission(rows: SubmissionRow[]) {
+  const missingResults = rows.filter((row) => !row.resultId)
+  if (missingResults.length > 0) {
+    throw new Error(
+      `Submission blocked: ${missingResults.length} registered student(s) have no saved result.`
+    )
+  }
+
+  const finalizedRows = rows.filter((row) => isFinalizedStatus(row.status))
+  if (finalizedRows.length > 0) {
+    throw new Error(
+      `Submission blocked: ${finalizedRows.length} row(s) are already finalized and can no longer be modified from the lecturer workspace.`
+    )
+  }
+
+  const blockedRows = rows.filter((row) => isUnderHigherReviewControl(row.status))
+  if (blockedRows.length > 0) {
+    throw new Error(
+      `Submission blocked: ${blockedRows.length} row(s) are already under higher review control.`
+    )
+  }
+
+  const invalidRows = rows.filter((row) => {
+    const ca = row.caScore
+    const exam = row.examScore
+    const total = row.totalScore
+    const grade = row.grade?.trim() ?? ''
+
+    const missingField = ca === null || exam === null || total === null || !grade
+    const invalidCA = ca !== null && (ca < 0 || ca > 40)
+    const invalidExam = exam !== null && (exam < 0 || exam > 60)
+    const invalidTotal = total !== null && (total < 0 || total > 100)
+    const totalMismatch =
+      ca !== null && exam !== null && total !== null && ca + exam !== total
+
+    return missingField || invalidCA || invalidExam || invalidTotal || totalMismatch
+  })
+
+  if (invalidRows.length > 0) {
+    throw new Error(
+      `Submission blocked: ${invalidRows.length} row(s) still have incomplete or invalid scores.`
+    )
+  }
+}
+
+function revalidateLecturerWorkflowPaths(offeringId: string) {
+  revalidatePath('/dashboard/lecturer')
+  revalidatePath(`/dashboard/lecturer/courses/${offeringId}`)
+
+  revalidatePath('/dashboard/hod')
+  revalidatePath('/dashboard/hod/results')
+  revalidatePath('/dashboard/hod/offerings')
+  revalidatePath('/dashboard/hod/reports')
+  revalidatePath(`/dashboard/hod/offerings/${offeringId}`)
+
+  revalidatePath('/dashboard/dean')
+  revalidatePath('/dashboard/dean/results')
+  revalidatePath('/dashboard/dean/offerings')
+  revalidatePath('/dashboard/dean/reports')
+  revalidatePath(`/dashboard/dean/offerings/${offeringId}`)
+}
+
 export async function upsertResult(input: {
   offeringId: string
   courseRegistrationId: string
@@ -146,7 +245,10 @@ export async function upsertResult(input: {
     )
 
     if (!registrationIds.has(courseRegistrationId)) {
-      return { ok: false, message: 'This registration does not belong to the selected offering.' }
+      return {
+        ok: false,
+        message: 'This registration does not belong to the selected offering.',
+      }
     }
 
     const { data: existingResult, error: existingError } = await supabase
@@ -159,12 +261,7 @@ export async function upsertResult(input: {
       throw new Error(existingError.message)
     }
 
-    if (
-      existingResult &&
-      (existingResult.status === 'HOD_APPROVED' ||
-        existingResult.status === 'DEAN_APPROVED' ||
-        existingResult.status === 'LOCKED')
-    ) {
+    if (isUnderHigherReviewControl(existingResult?.status)) {
       return {
         ok: false,
         message: 'This result is no longer editable from the lecturer workspace.',
@@ -188,21 +285,31 @@ export async function upsertResult(input: {
       throw new Error(upsertError.message)
     }
 
+    const { data: savedResult, error: savedResultError } = await supabase
+      .from('results')
+      .select('id, status')
+      .eq('course_registration_id', courseRegistrationId)
+      .maybeSingle()
+
+    if (savedResultError) {
+      throw new Error(savedResultError.message)
+    }
+
     await insertAuditLogs(
       supabase,
-      [{ resultId: existingResult?.id ?? null, status: existingResult?.status ?? null }],
+      [
+        {
+          resultId: savedResult?.id ?? existingResult?.id ?? null,
+          status: existingResult?.status ?? null,
+        },
+      ],
       profile.id,
       profile.role,
       'LECTURER_SAVED_ROW',
       'Lecturer saved or updated a result row.'
     )
 
-    revalidatePath('/dashboard/lecturer')
-    revalidatePath(`/dashboard/lecturer/courses/${offeringId}`)
-    revalidatePath('/dashboard/hod')
-    revalidatePath('/dashboard/hod/results')
-    revalidatePath('/dashboard/hod/offerings')
-    revalidatePath('/dashboard/hod/reports')
+    revalidateLecturerWorkflowPaths(offeringId)
 
     return {
       ok: true,
@@ -213,50 +320,6 @@ export async function upsertResult(input: {
       ok: false,
       message: error instanceof Error ? error.message : 'Failed to save result.',
     }
-  }
-}
-
-function validateRowsForSubmission(rows: SubmissionRow[]) {
-  const missingResults = rows.filter((row) => !row.resultId)
-  if (missingResults.length > 0) {
-    throw new Error(
-      `Submission blocked: ${missingResults.length} registered student(s) have no saved result.`
-    )
-  }
-
-  const invalidRows = rows.filter((row) => {
-    const ca = row.caScore
-    const exam = row.examScore
-    const total = row.totalScore
-    const grade = row.grade?.trim() ?? ''
-
-    const missingField = ca === null || exam === null || total === null || !grade
-    const invalidCA = ca !== null && (ca < 0 || ca > 40)
-    const invalidExam = exam !== null && (exam < 0 || exam > 60)
-    const invalidTotal = total !== null && (total < 0 || total > 100)
-    const totalMismatch =
-      ca !== null && exam !== null && total !== null && ca + exam !== total
-
-    return missingField || invalidCA || invalidExam || invalidTotal || totalMismatch
-  })
-
-  if (invalidRows.length > 0) {
-    throw new Error(
-      `Submission blocked: ${invalidRows.length} row(s) still have incomplete or invalid scores.`
-    )
-  }
-
-  const blockedRows = rows.filter(
-    (row) =>
-      row.status === 'HOD_APPROVED' ||
-      row.status === 'DEAN_APPROVED' ||
-      row.status === 'LOCKED'
-  )
-
-  if (blockedRows.length > 0) {
-    throw new Error(
-      `Submission blocked: ${blockedRows.length} row(s) are already under higher review control.`
-    )
   }
 }
 
@@ -273,21 +336,14 @@ export async function submitOfferingResultsAction(
 
     const { supabase, profile, offering } = await getAuthorizedLecturerContext(offeringId)
 
-    const rows: SubmissionRow[] = (offering.course_registrations ?? []).map((registration: any) => {
-      const result = Array.isArray(registration.results)
-        ? registration.results[0]
-        : registration.results
+    const rows = buildSubmissionRows(offering)
 
+    if (rows.length === 0) {
       return {
-        registrationId: registration.id,
-        resultId: result?.id ?? null,
-        status: result?.status ?? null,
-        caScore: result?.ca_score ?? null,
-        examScore: result?.exam_score ?? null,
-        totalScore: result?.score ?? null,
-        grade: result?.grade ?? null,
+        ok: false,
+        message: 'This offering has no registered result rows to submit.',
       }
-    })
+    }
 
     validateRowsForSubmission(rows)
 
@@ -313,12 +369,7 @@ export async function submitOfferingResultsAction(
       'Lecturer submitted this offering batch for HOD review.'
     )
 
-    revalidatePath('/dashboard/lecturer')
-    revalidatePath(`/dashboard/lecturer/courses/${offeringId}`)
-    revalidatePath('/dashboard/hod')
-    revalidatePath('/dashboard/hod/results')
-    revalidatePath('/dashboard/hod/offerings')
-    revalidatePath('/dashboard/hod/reports')
+    revalidateLecturerWorkflowPaths(offeringId)
 
     return {
       ok: true,

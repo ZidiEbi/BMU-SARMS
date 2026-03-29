@@ -14,6 +14,7 @@ import {
   Upload,
   UserRound,
   Users,
+  Building2,
 } from 'lucide-react'
 
 type Faculty = {
@@ -58,7 +59,7 @@ const ROLE_META: Record<
   },
   registry: {
     label: 'Registry',
-    helper: 'Records, registration, and academic operations support.',
+    helper: 'Department-based records, registration, and academic operations support.',
     icon: <ShieldCheck size={16} />,
   },
 }
@@ -75,9 +76,9 @@ export default function SignupPage() {
   const [title, setTitle] = useState('')
 
   const [role, setRole] = useState<SignupRole>('lecturer')
+
   const [facultyId, setFacultyId] = useState('')
   const [departmentId, setDepartmentId] = useState('')
-  const [requestedDepartmentId, setRequestedDepartmentId] = useState('')
 
   const [faculties, setFaculties] = useState<Faculty[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -96,10 +97,7 @@ export default function SignupPage() {
       const [{ data: facultyData, error: facultyError }, { data: departmentData, error: departmentError }] =
         await Promise.all([
           supabase.from('faculties').select('id, name').order('name', { ascending: true }),
-          supabase
-            .from('departments')
-            .select('id, name, faculty_id')
-            .order('name', { ascending: true }),
+          supabase.from('departments').select('id, name, faculty_id').order('name', { ascending: true }),
         ])
 
       if (facultyError) {
@@ -123,44 +121,33 @@ export default function SignupPage() {
   useEffect(() => {
     if (role === 'dean') {
       setDepartmentId('')
-      setRequestedDepartmentId('')
-      return
-    }
-
-    if (role === 'hod') {
-      setRequestedDepartmentId('')
-      return
-    }
-
-    if (role === 'lecturer') {
-      setDepartmentId('')
-      return
-    }
-
-    if (role === 'registry') {
-      setDepartmentId('')
-      setRequestedDepartmentId('')
+    } else {
+      setFacultyId('')
     }
   }, [role])
 
-  const selectedDepartmentForLecturer =
-    departments.find((dept) => dept.id === requestedDepartmentId) ?? null
-  const selectedDepartmentForHOD =
-    departments.find((dept) => dept.id === departmentId) ?? null
+  const selectedDepartment = useMemo(
+    () => departments.find((dept) => dept.id === departmentId) ?? null,
+    [departments, departmentId]
+  )
 
-  const effectiveFacultyId =
+  const selectedFaculty = useMemo(
+    () => faculties.find((faculty) => faculty.id === facultyId) ?? null,
+    [faculties, facultyId]
+  )
+
+  const derivedFacultyId =
+    role === 'dean' ? facultyId : selectedDepartment?.faculty_id ?? ''
+
+  const derivedFacultyName =
     role === 'dean'
-      ? facultyId
-      : role === 'hod'
-      ? selectedDepartmentForHOD?.faculty_id ?? facultyId
-      : role === 'lecturer'
-      ? selectedDepartmentForLecturer?.faculty_id ?? facultyId
-      : facultyId
+      ? selectedFaculty?.name ?? ''
+      : faculties.find((faculty) => faculty.id === selectedDepartment?.faculty_id)?.name ?? ''
 
-  const filteredDepartments = useMemo(() => {
-    if (!effectiveFacultyId) return departments
-    return departments.filter((dept) => dept.faculty_id === effectiveFacultyId)
-  }, [departments, effectiveFacultyId])
+  const roleNeedsDepartment =
+    role === 'lecturer' || role === 'hod' || role === 'registry'
+
+  const roleNeedsFaculty = role === 'dean'
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -232,9 +219,7 @@ export default function SignupPage() {
       await sleep(400 * attempt)
     }
 
-    if (lastError instanceof Error) {
-      throw lastError
-    }
+    if (lastError instanceof Error) throw lastError
 
     if (
       typeof lastError === 'object' &&
@@ -260,28 +245,22 @@ export default function SignupPage() {
       const cleanStaffId = staffId.trim()
       const cleanTitle = title.trim()
 
-      if (!full_name) {
-        throw new Error('Full name is required.')
-      }
-
-      if (!cleanEmail) {
-        throw new Error('Email is required.')
-      }
-
+      if (!full_name) throw new Error('Full name is required.')
+      if (!cleanEmail) throw new Error('Email is required.')
       if (!password || password.length < 6) {
         throw new Error('Password must be at least 6 characters.')
       }
 
-      if (role === 'lecturer' && !requestedDepartmentId) {
-        throw new Error('Lecturers must choose a home department.')
+      if (roleNeedsDepartment && !departmentId) {
+        throw new Error('Please select a department.')
       }
 
-      if (role === 'hod' && !departmentId) {
-        throw new Error('HOD accounts must choose a department.')
+      if (roleNeedsFaculty && !facultyId) {
+        throw new Error('Please select a faculty.')
       }
 
-      if (role === 'dean' && !facultyId) {
-        throw new Error('Dean accounts must choose a faculty.')
+      if (!derivedFacultyId) {
+        throw new Error('Unable to resolve faculty assignment from the selected scope.')
       }
 
       const metadata = {
@@ -290,9 +269,9 @@ export default function SignupPage() {
         role,
         staff_id: cleanStaffId || null,
         title: cleanTitle || null,
-        faculty_id: effectiveFacultyId || null,
-        department_id: role === 'hod' ? departmentId : null,
-        requested_department_id: role === 'lecturer' ? requestedDepartmentId : null,
+        faculty_id: derivedFacultyId,
+        department_id: role === 'hod' || role === 'registry' ? departmentId : null,
+        requested_department_id: role === 'lecturer' ? departmentId : null,
       }
 
       const { data: authData, error: signUpErr } = await supabase.auth.signUp({
@@ -325,14 +304,9 @@ export default function SignupPage() {
         title: cleanTitle || null,
         avatar_url: avatarUrl,
         is_verified: false,
-        faculty_id: effectiveFacultyId || null,
-        department_id: role === 'hod' ? departmentId : null,
-        requested_department_id: role === 'lecturer' ? requestedDepartmentId : null,
-      }
-
-      if (role === 'registry') {
-        profileUpdates.department_id = null
-        profileUpdates.requested_department_id = null
+        faculty_id: derivedFacultyId,
+        department_id: role === 'hod' || role === 'registry' ? departmentId : null,
+        requested_department_id: role === 'lecturer' ? departmentId : null,
       }
 
       if (role === 'dean') {
@@ -354,10 +328,6 @@ export default function SignupPage() {
       setLoading(false)
     }
   }
-
-  const needsFaculty = role === 'dean' || role === 'registry'
-  const needsDepartment = role === 'hod'
-  const needsRequestedDepartment = role === 'lecturer'
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -387,12 +357,12 @@ export default function SignupPage() {
                   Production-grade access flow
                 </p>
                 <h1 className="text-4xl font-black tracking-tight text-slate-900">
-                  Create a staff account that matches your institutional role.
+                  Request the right institutional access in one smart flow.
                 </h1>
                 <p className="max-w-xl text-sm font-medium leading-7 text-slate-500">
-                  This onboarding flow now supports academic and administrative staff pathways,
-                  including Lecturer, HOD, Dean, and Registry roles. Each account is linked to the
-                  right faculty or department context before approval.
+                  Department-based roles should choose only their department. Faculty assignment is
+                  derived automatically. Dean accounts remain faculty-scoped. This keeps onboarding
+                  cleaner, smarter, and operationally accurate.
                 </p>
               </div>
 
@@ -425,9 +395,8 @@ export default function SignupPage() {
                 Security note
               </p>
               <p className="mt-2 text-sm font-medium leading-6 text-amber-900">
-                Self-signup is intentionally limited to operational staff roles. Higher-control
-                platform roles such as Admin and Super Admin should continue to be provisioned
-                through secured internal processes, not public signup.
+                Self-signup is intentionally limited to operational staff roles. Admin and Super
+                Admin access should continue to be provisioned through secured internal processes.
               </p>
             </div>
           </section>
@@ -587,18 +556,14 @@ export default function SignupPage() {
                     Institutional scope
                   </p>
                   <p className="mt-2 text-sm font-medium text-slate-600">
-                    Choose the faculty or department context required for your role.
+                    This form now derives faculty automatically whenever the selected role is department-based.
                   </p>
                 </div>
 
-                {needsFaculty && (
+                {roleNeedsFaculty ? (
                   <select
                     value={facultyId}
-                    onChange={(e) => {
-                      setFacultyId(e.target.value)
-                      setDepartmentId('')
-                      setRequestedDepartmentId('')
-                    }}
+                    onChange={(e) => setFacultyId(e.target.value)}
                     disabled={loadingLookups}
                     className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold focus:border-transparent focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-60"
                   >
@@ -609,73 +574,56 @@ export default function SignupPage() {
                       </option>
                     ))}
                   </select>
-                )}
+                ) : null}
 
-                {needsDepartment && (
-                  <>
-                    {!facultyId ? (
-                      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
-                        Select a faculty first to continue with department selection.
+                {roleNeedsDepartment ? (
+                  <select
+                    required
+                    value={departmentId}
+                    onChange={(e) => setDepartmentId(e.target.value)}
+                    disabled={loadingLookups}
+                    className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold focus:border-transparent focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-60"
+                  >
+                    <option value="">Select department</option>
+                    {departments.map((dept) => (
+                      <option key={dept.id} value={dept.id}>
+                        {dept.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+
+                {derivedFacultyName ? (
+                  <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                    <div className="flex items-start gap-3">
+                      <Building2 size={18} className="mt-0.5 text-blue-700" />
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-blue-700">
+                          Resolved faculty
+                        </p>
+                        <p className="mt-2 text-sm font-bold text-blue-900">
+                          {derivedFacultyName}
+                        </p>
                       </div>
-                    ) : null}
-
-                    <select
-                      required
-                      value={departmentId}
-                      onChange={(e) => setDepartmentId(e.target.value)}
-                      disabled={loadingLookups || !facultyId}
-                      className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold focus:border-transparent focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-60"
-                    >
-                      <option value="">Select department</option>
-                      {filteredDepartments.map((dept) => (
-                        <option key={dept.id} value={dept.id}>
-                          {dept.name}
-                        </option>
-                      ))}
-                    </select>
-                  </>
-                )}
-
-                {needsRequestedDepartment && (
-                  <>
-                    {!facultyId ? (
-                      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
-                        Select a faculty first to continue with department selection.
-                      </div>
-                    ) : null}
-
-                    <select
-                      required
-                      value={requestedDepartmentId}
-                      onChange={(e) => setRequestedDepartmentId(e.target.value)}
-                      disabled={loadingLookups || !facultyId}
-                      className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold focus:border-transparent focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-60"
-                    >
-                      <option value="">Select home department</option>
-                      {filteredDepartments.map((dept) => (
-                        <option key={dept.id} value={dept.id}>
-                          {dept.name}
-                        </option>
-                      ))}
-                    </select>
-                  </>
-                )}
+                    </div>
+                  </div>
+                ) : null}
 
                 {role === 'lecturer' ? (
                   <p className="text-[11px] font-medium leading-6 text-slate-500">
-                    Lecturer accounts request a home department and remain pending until departmental approval is completed.
+                    Lecturer accounts choose only their home department. Faculty is derived automatically from that department.
                   </p>
                 ) : role === 'hod' ? (
                   <p className="text-[11px] font-medium leading-6 text-slate-500">
-                    HOD signup is department-scoped and should still go through institutional verification before activation.
+                    HOD signup is department-scoped. Faculty is resolved automatically from the selected department.
                   </p>
                 ) : role === 'dean' ? (
                   <p className="text-[11px] font-medium leading-6 text-slate-500">
-                    Dean accounts are faculty-scoped and should be approved before faculty-level access is granted.
+                    Dean accounts remain faculty-scoped and should be approved before faculty-level access is granted.
                   </p>
                 ) : (
                   <p className="text-[11px] font-medium leading-6 text-slate-500">
-                    Registry accounts may be created without department assignment and can later be aligned administratively if needed.
+                    Registry is department-based here, so operational work stays close to the department records they manage.
                   </p>
                 )}
               </div>

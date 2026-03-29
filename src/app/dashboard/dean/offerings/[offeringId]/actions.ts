@@ -18,6 +18,8 @@ type ApprovalRow = {
   grade: string | null
 }
 
+const FINALIZED_RESULT_STATUSES = new Set(['DEAN_APPROVED', 'LOCKED'])
+
 async function getAuthorizedDeanContext(offeringId: string) {
   const supabase = await createSupabaseServerClient()
 
@@ -92,7 +94,24 @@ async function getAuthorizedDeanContext(offeringId: string) {
   return { supabase, user, profile, offering }
 }
 
+function hasFinalizedRows(rows: ApprovalRow[]) {
+  return rows.some((row) => FINALIZED_RESULT_STATUSES.has(String(row.status ?? '').trim()))
+}
+
+function countFinalizedRows(rows: ApprovalRow[]) {
+  return rows.filter((row) =>
+    FINALIZED_RESULT_STATUSES.has(String(row.status ?? '').trim())
+  ).length
+}
+
 function validateRowsForDeanApproval(rows: ApprovalRow[]) {
+  const finalizedRows = countFinalizedRows(rows)
+  if (finalizedRows > 0) {
+    throw new Error(
+      `Dean approval blocked: ${finalizedRows} row(s) are already finalized and can no longer be modified.`
+    )
+  }
+
   const missingResults = rows.filter((row) => !row.resultId)
   if (missingResults.length > 0) {
     throw new Error(
@@ -158,6 +177,39 @@ async function insertAuditLogs(
   }
 }
 
+function buildApprovalRows(offering: any): ApprovalRow[] {
+  return (offering.course_registrations ?? []).map((registration: any) => {
+    const result = Array.isArray(registration.results)
+      ? registration.results[0]
+      : registration.results
+
+    return {
+      registrationId: registration.id,
+      resultId: result?.id ?? null,
+      status: result?.status ?? null,
+      caScore: result?.ca_score ?? null,
+      examScore: result?.exam_score ?? null,
+      totalScore: result?.score ?? null,
+      grade: result?.grade ?? null,
+    }
+  })
+}
+
+function revalidateDeanWorkflowPaths(offeringId: string) {
+  revalidatePath('/dashboard/dean')
+  revalidatePath('/dashboard/dean/results')
+  revalidatePath('/dashboard/dean/offerings')
+  revalidatePath(`/dashboard/dean/offerings/${offeringId}`)
+  revalidatePath('/dashboard/dean/reports')
+
+  revalidatePath('/dashboard/hod')
+  revalidatePath('/dashboard/hod/results')
+  revalidatePath('/dashboard/hod/offerings')
+  revalidatePath(`/dashboard/hod/offerings/${offeringId}`)
+
+  revalidatePath('/dashboard/lecturer')
+}
+
 export async function approveDeanOfferingResultsAction(
   _prevState: DeanActionState,
   formData: FormData
@@ -171,21 +223,14 @@ export async function approveDeanOfferingResultsAction(
 
     const { supabase, profile, offering } = await getAuthorizedDeanContext(offeringId)
 
-    const rows: ApprovalRow[] = (offering.course_registrations ?? []).map((registration: any) => {
-      const result = Array.isArray(registration.results)
-        ? registration.results[0]
-        : registration.results
+    const rows = buildApprovalRows(offering)
 
+    if (rows.length === 0) {
       return {
-        registrationId: registration.id,
-        resultId: result?.id ?? null,
-        status: result?.status ?? null,
-        caScore: result?.ca_score ?? null,
-        examScore: result?.exam_score ?? null,
-        totalScore: result?.score ?? null,
-        grade: result?.grade ?? null,
+        ok: false,
+        message: 'This offering has no registered result rows to finalize.',
       }
-    })
+    }
 
     validateRowsForDeanApproval(rows)
 
@@ -207,22 +252,15 @@ export async function approveDeanOfferingResultsAction(
       rows,
       profile.id,
       profile.role,
-      'DEAN_APPROVED_BATCH',
-      'Dean approved this offering batch.'
+      'DEAN_FINALIZED_BATCH',
+      'Dean finalized this offering batch. Dean-stage edits are now locked.'
     )
 
-    revalidatePath('/dashboard/dean')
-    revalidatePath('/dashboard/dean/results')
-    revalidatePath('/dashboard/dean/offerings')
-    revalidatePath(`/dashboard/dean/offerings/${offeringId}`)
-    revalidatePath('/dashboard/dean/reports')
-    revalidatePath('/dashboard/hod')
-    revalidatePath('/dashboard/hod/results')
-    revalidatePath('/dashboard/hod/offerings')
+    revalidateDeanWorkflowPaths(offeringId)
 
     return {
       ok: true,
-      message: 'Dean approval completed successfully.',
+      message: 'Dean approval completed. This batch is now finalized and locked at Dean stage.',
     }
   } catch (error) {
     return {
@@ -246,21 +284,22 @@ export async function returnDeanOfferingResultsAction(
 
     const { supabase, profile, offering } = await getAuthorizedDeanContext(offeringId)
 
-    const rows: ApprovalRow[] = (offering.course_registrations ?? []).map((registration: any) => {
-      const result = Array.isArray(registration.results)
-        ? registration.results[0]
-        : registration.results
+    const rows = buildApprovalRows(offering)
 
+    if (rows.length === 0) {
       return {
-        registrationId: registration.id,
-        resultId: result?.id ?? null,
-        status: result?.status ?? null,
-        caScore: result?.ca_score ?? null,
-        examScore: result?.exam_score ?? null,
-        totalScore: result?.score ?? null,
-        grade: result?.grade ?? null,
+        ok: false,
+        message: 'This offering has no registered result rows to return.',
       }
-    })
+    }
+
+    if (hasFinalizedRows(rows)) {
+      const finalizedRows = countFinalizedRows(rows)
+      return {
+        ok: false,
+        message: `Return blocked: ${finalizedRows} row(s) are already finalized at Dean stage and can no longer be sent back to HOD.`,
+      }
+    }
 
     const returnableRows = rows.filter(
       (row) => row.resultId && row.status === 'HOD_APPROVED'
@@ -291,18 +330,11 @@ export async function returnDeanOfferingResultsAction(
       returnableRows,
       profile.id,
       profile.role,
-      'DEAN_RETURNED_BATCH',
+      'DEAN_RETURNED_TO_HOD',
       note || 'Dean returned this offering batch to HOD for amendment.'
     )
 
-    revalidatePath('/dashboard/dean')
-    revalidatePath('/dashboard/dean/results')
-    revalidatePath('/dashboard/dean/offerings')
-    revalidatePath(`/dashboard/dean/offerings/${offeringId}`)
-    revalidatePath('/dashboard/dean/reports')
-    revalidatePath('/dashboard/hod')
-    revalidatePath('/dashboard/hod/results')
-    revalidatePath('/dashboard/hod/offerings')
+    revalidateDeanWorkflowPaths(offeringId)
 
     return {
       ok: true,

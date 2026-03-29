@@ -1,6 +1,6 @@
 import { redirect, notFound } from 'next/navigation'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import DeanOfferingWorkspace from '@/components/dashboard/dean/DeanOfferingWorkspace'
+import DeanOfferingWorkspace from '@/components/dashboard/dean/DeanofferingWorkspace'
 
 type PageProps = {
   params: Promise<{ offeringId: string }>
@@ -116,11 +116,15 @@ export default async function DeanOfferingDetailPage({ params }: PageProps) {
     const normalizedStudent = registration.students
       ? Array.isArray(registration.students)
         ? registration.students.map((student) => ({
-            ...student,
+            id: student.id as string,
+            matric_number: student.matric_number as string,
+            full_name: student.full_name as string,
             level: offering.level ?? null,
           }))
         : {
-            ...registration.students,
+            id: (registration.students as Record<string, unknown>).id as string,
+            matric_number: (registration.students as Record<string, unknown>).matric_number as string,
+            full_name: (registration.students as Record<string, unknown>).full_name as string,
             level: offering.level ?? null,
           }
       : null
@@ -129,12 +133,17 @@ export default async function DeanOfferingDetailPage({ params }: PageProps) {
       ? Array.isArray(registration.results)
         ? registration.results.map((result) => ({
             ...result,
-            total_score: result.score,
+            total_score: result.score ?? null,
           }))
         : [
             {
-              ...registration.results,
-              total_score: registration.results.score,
+              id: (registration.results as any).id,
+              ca_score: (registration.results as any).ca_score,
+              exam_score: (registration.results as any).exam_score,
+              total_score: (registration.results as any).score ?? null,
+              grade: (registration.results as any).grade,
+              status: (registration.results as any).status,
+              updated_at: (registration.results as any).updated_at,
             },
           ]
       : []

@@ -17,6 +17,7 @@ import {
   FileCheck2,
   Files,
   Layers3,
+  Clock,
 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 
@@ -68,7 +69,8 @@ export default function Sidebar({
         { name: 'Offerings', href: '/dashboard/hod/offerings', icon: BookOpen },
         { name: 'Results Review', href: '/dashboard/hod/results', icon: FileCheck2 },
         { name: 'Allocations', href: '/dashboard/hod/allocations', icon: Layers3 },
-        { name: 'Reports', href: '/dashboard/hod/reports', icon: Files }
+        { name: 'Reports', href: '/dashboard/hod/reports', icon: Files },
+        { name: 'History', href: '/dashboard/hod/history', icon: Clock }
       )
     }
 
@@ -152,7 +154,7 @@ export default function Sidebar({
                 <GraduationCap size={22} />
               </div>
               <div className="flex flex-col">
-                <span className="font-bold text-slate-900 leading-none tracking-tight">BMU SAMS</span>
+                <span className="font-bold text-slate-900 leading-none tracking-tight">BMU SARMS</span>
                 <span className="text-[10px] font-bold text-blue-600 uppercase tracking-tighter mt-1 opacity-70">
                   Global Standards
                 </span>

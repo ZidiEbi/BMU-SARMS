@@ -18,6 +18,21 @@ type ApprovalRow = {
   grade: string | null
 }
 
+const FINALIZED_RESULT_STATUSES = new Set(['DEAN_APPROVED', 'LOCKED'])
+const HOD_RETURNABLE_STATUSES = new Set(['SUBMITTED', 'HOD_APPROVED'])
+
+function normalizeStatus(status: string | null | undefined) {
+  return String(status ?? '').trim().toUpperCase()
+}
+
+function isFinalizedStatus(status: string | null | undefined) {
+  return FINALIZED_RESULT_STATUSES.has(normalizeStatus(status))
+}
+
+function isReturnableByHod(status: string | null | undefined) {
+  return HOD_RETURNABLE_STATUSES.has(normalizeStatus(status))
+}
+
 async function getAuthorizedContext(offeringId: string) {
   const supabase = await createSupabaseServerClient()
 
@@ -41,8 +56,7 @@ async function getAuthorizedContext(offeringId: string) {
   }
 
   const normalizedRole = String(profile.role || '').trim().toLowerCase()
-  const isAdmin =
-    normalizedRole === 'admin' || normalizedRole === 'super_admin'
+  const isAdmin = normalizedRole === 'admin' || normalizedRole === 'super_admin'
   const isHOD = normalizedRole === 'hod'
 
   if (!isHOD && !isAdmin) {
@@ -131,19 +145,19 @@ function validateRowsForApproval(rows: ApprovalRow[]) {
     )
   }
 
-  const lockedOrDeanRows = rows.filter(
-    (row) => row.status === 'DEAN_APPROVED' || row.status === 'LOCKED'
-  )
-  if (lockedOrDeanRows.length > 0) {
+  const finalizedRows = rows.filter((row) => isFinalizedStatus(row.status))
+  if (finalizedRows.length > 0) {
     throw new Error(
-      `Approval blocked: ${lockedOrDeanRows.length} row(s) are already dean-controlled or locked.`
+      `Approval blocked: ${finalizedRows.length} row(s) have already been finalized by the Dean and can no longer be modified.`
     )
   }
 
-  const nonSubmittedRows = rows.filter((row) => row.status !== 'SUBMITTED')
+  const nonSubmittedRows = rows.filter(
+    (row) => normalizeStatus(row.status) !== 'SUBMITTED'
+  )
   if (nonSubmittedRows.length > 0) {
     throw new Error(
-      `Approval blocked: ${nonSubmittedRows.length} row(s) are not yet submitted by the lecturer. Only SUBMITTED rows can be approved.`
+      `Approval blocked: ${nonSubmittedRows.length} row(s) are not currently SUBMITTED. Only SUBMITTED rows can move to HOD approval.`
     )
   }
 
@@ -198,6 +212,23 @@ async function insertAuditLogs(
   }
 }
 
+function revalidateHodWorkflowPaths(offeringId: string) {
+  revalidatePath('/dashboard/hod')
+  revalidatePath('/dashboard/hod/results')
+  revalidatePath('/dashboard/hod/offerings')
+  revalidatePath(`/dashboard/hod/offerings/${offeringId}`)
+  revalidatePath('/dashboard/hod/reports')
+
+  revalidatePath('/dashboard/lecturer')
+  revalidatePath(`/dashboard/lecturer/courses/${offeringId}`)
+
+  revalidatePath('/dashboard/dean')
+  revalidatePath('/dashboard/dean/results')
+  revalidatePath('/dashboard/dean/offerings')
+  revalidatePath(`/dashboard/dean/offerings/${offeringId}`)
+  revalidatePath('/dashboard/dean/reports')
+}
+
 export async function approveOfferingResultsAction(
   _prevState: ActionState,
   formData: FormData
@@ -211,6 +242,13 @@ export async function approveOfferingResultsAction(
 
     const { supabase, profile } = await getAuthorizedContext(offeringId)
     const rows = await fetchOfferingResults(supabase, offeringId)
+
+    if (rows.length === 0) {
+      return {
+        ok: false,
+        message: 'This offering has no registered result rows to approve.',
+      }
+    }
 
     validateRowsForApproval(rows)
 
@@ -234,20 +272,15 @@ export async function approveOfferingResultsAction(
       rows,
       profile.id,
       profile.role,
-      'HOD_APPROVED_BATCH',
-      'HOD approved all submitted and valid results for this offering.'
+      'HOD_APPROVED_FOR_DEAN',
+      'HOD approved all submitted and valid results for Dean review.'
     )
 
-    revalidatePath('/dashboard/hod')
-    revalidatePath('/dashboard/hod/results')
-    revalidatePath('/dashboard/hod/offerings')
-    revalidatePath(`/dashboard/hod/offerings/${offeringId}`)
-    revalidatePath('/dashboard/hod/reports')
-    revalidatePath('/dashboard/lecturer')
+    revalidateHodWorkflowPaths(offeringId)
 
     return {
       ok: true,
-      message: 'Results approved successfully.',
+      message: 'Results approved successfully and forwarded to Dean stage.',
     }
   } catch (error) {
     return {
@@ -272,11 +305,23 @@ export async function returnOfferingResultsAction(
     const { supabase, profile } = await getAuthorizedContext(offeringId)
     const rows = await fetchOfferingResults(supabase, offeringId)
 
+    if (rows.length === 0) {
+      return {
+        ok: false,
+        message: 'This offering has no registered result rows to return.',
+      }
+    }
+
+    const finalizedRows = rows.filter((row) => isFinalizedStatus(row.status))
+    if (finalizedRows.length > 0) {
+      return {
+        ok: false,
+        message: `Return blocked: ${finalizedRows.length} row(s) have already been finalized by the Dean and can no longer be sent back to the lecturer.`,
+      }
+    }
+
     const returnableRows = rows.filter(
-      (row) =>
-        row.resultId &&
-        row.status !== 'DEAN_APPROVED' &&
-        row.status !== 'LOCKED'
+      (row) => row.resultId && isReturnableByHod(row.status)
     )
 
     if (returnableRows.length === 0) {
@@ -304,16 +349,11 @@ export async function returnOfferingResultsAction(
       returnableRows,
       profile.id,
       profile.role,
-      'HOD_RETURNED_BATCH',
+      'HOD_RETURNED_TO_LECTURER',
       note || 'HOD returned this offering batch to lecturer for correction.'
     )
 
-    revalidatePath('/dashboard/hod')
-    revalidatePath('/dashboard/hod/results')
-    revalidatePath('/dashboard/hod/offerings')
-    revalidatePath(`/dashboard/hod/offerings/${offeringId}`)
-    revalidatePath('/dashboard/hod/reports')
-    revalidatePath('/dashboard/lecturer')
+    revalidateHodWorkflowPaths(offeringId)
 
     return {
       ok: true,
@@ -342,11 +382,23 @@ export async function rejectOfferingResultsAction(
     const { supabase, profile } = await getAuthorizedContext(offeringId)
     const rows = await fetchOfferingResults(supabase, offeringId)
 
+    if (rows.length === 0) {
+      return {
+        ok: false,
+        message: 'This offering has no registered result rows to reject.',
+      }
+    }
+
+    const finalizedRows = rows.filter((row) => isFinalizedStatus(row.status))
+    if (finalizedRows.length > 0) {
+      return {
+        ok: false,
+        message: `Rejection blocked: ${finalizedRows.length} row(s) have already been finalized by the Dean and can no longer be modified.`,
+      }
+    }
+
     const rejectableRows = rows.filter(
-      (row) =>
-        row.resultId &&
-        row.status !== 'DEAN_APPROVED' &&
-        row.status !== 'LOCKED'
+      (row) => row.resultId && isReturnableByHod(row.status)
     )
 
     if (rejectableRows.length === 0) {
@@ -374,16 +426,11 @@ export async function rejectOfferingResultsAction(
       rejectableRows,
       profile.id,
       profile.role,
-      'HOD_REJECTED_BATCH',
+      'HOD_REJECTED_TO_LECTURER',
       note || 'HOD rejected this offering batch and sent it back for rework.'
     )
 
-    revalidatePath('/dashboard/hod')
-    revalidatePath('/dashboard/hod/results')
-    revalidatePath('/dashboard/hod/offerings')
-    revalidatePath(`/dashboard/hod/offerings/${offeringId}`)
-    revalidatePath('/dashboard/hod/reports')
-    revalidatePath('/dashboard/lecturer')
+    revalidateHodWorkflowPaths(offeringId)
 
     return {
       ok: true,

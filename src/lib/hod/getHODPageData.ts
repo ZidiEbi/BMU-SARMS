@@ -102,6 +102,30 @@ type RawOffering = {
   course_registrations: RawRegistrationItem[] | null
 }
 
+type RawLecturer = {
+  id: string
+  full_name: string | null
+  staff_id: string | null
+  role?: string | null
+  is_verified: boolean | null
+  title?: string | null
+  avatar_url?: string | null
+  department_id?: string | null
+  faculty_id?: string | null
+  requested_department_id?: string | null
+}
+
+type DepartmentLookup = {
+  id: string
+  name: string
+  faculty_id?: string | null
+}
+
+type FacultyLookup = {
+  id: string
+  name: string
+}
+
 export type HODOffering = {
   id: string
   level: string
@@ -137,6 +161,18 @@ export type HODLecturer = {
   department_id?: string | null
   faculty_id?: string | null
   requested_department_id?: string | null
+  department_name?: string | null
+  faculty_name?: string | null
+  requested_department_name?: string | null
+}
+
+function normalizeRole(role: string | null | undefined) {
+  return String(role ?? '').trim().toLowerCase()
+}
+
+function toSingle<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null
+  return Array.isArray(value) ? (value[0] ?? null) : value
 }
 
 export async function getHODPageData() {
@@ -144,7 +180,8 @@ export async function getHODPageData() {
 
   requireRole(profile, ['hod', 'admin', 'SUPER_ADMIN'])
 
-  const isAdmin = profile.role === 'SUPER_ADMIN' || profile.role === 'admin'
+  const normalizedRole = normalizeRole(profile.role)
+  const isAdmin = normalizedRole === 'super_admin' || normalizedRole === 'admin'
   const rawDeptId = profile.department_id ?? null
 
   if (!rawDeptId && !isAdmin) {
@@ -154,27 +191,27 @@ export async function getHODPageData() {
   let departmentLabel = isAdmin ? 'University-Wide Oversight' : 'General Department'
 
   if (rawDeptId) {
-    const { data: departmentData } = await supabase
+    const { data: departmentData, error: departmentError } = await supabase
       .from('departments')
-      .select('name')
+      .select('id, name')
       .eq('id', rawDeptId)
       .maybeSingle()
+
+    if (departmentError) {
+      throw new Error(`Failed to load department label: ${departmentError.message}`)
+    }
 
     departmentLabel = departmentData?.name || 'General Department'
   }
 
-  let lecturerQuery = supabase
+  const lecturersQuery = supabase
     .from('profiles')
     .select(
       'id, full_name, staff_id, role, is_verified, title, avatar_url, department_id, faculty_id, requested_department_id'
     )
     .eq('role', 'lecturer')
-
-  if (rawDeptId && !isAdmin) {
-    lecturerQuery = lecturerQuery.or(
-      `and(is_verified.eq.false,requested_department_id.eq.${rawDeptId}),and(is_verified.eq.true,department_id.eq.${rawDeptId})`
-    )
-  }
+    .order('is_verified', { ascending: false })
+    .order('full_name', { ascending: true })
 
   let offeringsQuery = supabase
     .from('course_offerings')
@@ -225,9 +262,21 @@ export async function getHODPageData() {
     offeringsQuery = offeringsQuery.eq('department_id', rawDeptId)
   }
 
-  const [lecturersRes, offeringsRes] = await Promise.all([
-    lecturerQuery,
+  const departmentsQuery = supabase
+    .from('departments')
+    .select('id, name, faculty_id')
+    .order('name', { ascending: true })
+
+  const facultiesQuery = supabase
+    .from('faculties')
+    .select('id, name')
+    .order('name', { ascending: true })
+
+  const [lecturersRes, offeringsRes, departmentsRes, facultiesRes] = await Promise.all([
+    lecturersQuery,
     offeringsQuery,
+    departmentsQuery,
+    facultiesQuery,
   ])
 
   if (lecturersRes.error) {
@@ -238,7 +287,63 @@ export async function getHODPageData() {
     throw new Error(`Failed to load offerings: ${offeringsRes.error.message}`)
   }
 
-  const lecturers = (lecturersRes.data || []) as HODLecturer[]
+  if (departmentsRes.error) {
+    throw new Error(`Failed to load departments: ${departmentsRes.error.message}`)
+  }
+
+  if (facultiesRes.error) {
+    throw new Error(`Failed to load faculties: ${facultiesRes.error.message}`)
+  }
+
+  const departments = (departmentsRes.data ?? []) as DepartmentLookup[]
+  const faculties = (facultiesRes.data ?? []) as FacultyLookup[]
+
+  const departmentNameById = new Map<string, string>()
+  const departmentFacultyIdById = new Map<string, string | null>()
+  for (const department of departments) {
+    departmentNameById.set(department.id, department.name)
+    departmentFacultyIdById.set(department.id, department.faculty_id ?? null)
+  }
+
+  const facultyNameById = new Map<string, string>()
+  for (const faculty of faculties) {
+    facultyNameById.set(faculty.id, faculty.name)
+  }
+
+  const rawLecturers = (lecturersRes.data ?? []) as RawLecturer[]
+
+  const lecturers = rawLecturers
+    .filter((lecturer) => {
+      if (isAdmin) return true
+
+      if (lecturer.is_verified) return true
+
+      return lecturer.requested_department_id === rawDeptId
+    })
+    .map((lecturer): HODLecturer => {
+      const departmentId = lecturer.department_id ?? null
+      const requestedDepartmentId = lecturer.requested_department_id ?? null
+
+      const resolvedFacultyId =
+        lecturer.faculty_id ??
+        (departmentId ? departmentFacultyIdById.get(departmentId) ?? null : null) ??
+        (requestedDepartmentId
+          ? departmentFacultyIdById.get(requestedDepartmentId) ?? null
+          : null)
+
+      return {
+        ...lecturer,
+        department_name: departmentId
+          ? departmentNameById.get(departmentId) ?? null
+          : null,
+        requested_department_name: requestedDepartmentId
+          ? departmentNameById.get(requestedDepartmentId) ?? null
+          : null,
+        faculty_name: resolvedFacultyId
+          ? facultyNameById.get(resolvedFacultyId) ?? null
+          : null,
+      }
+    })
 
   const offerings: HODOffering[] = ((offeringsRes.data as RawOffering[] | null) || []).map(
     (offering) => ({
@@ -251,16 +356,10 @@ export async function getHODPageData() {
       created_at: offering.created_at || undefined,
       course_id: offering.course_id,
       department_id: offering.department_id,
-      courses: Array.isArray(offering.courses)
-        ? offering.courses[0] || null
-        : offering.courses,
-      lecturer: Array.isArray(offering.lecturer)
-        ? offering.lecturer[0] || null
-        : offering.lecturer,
+      courses: toSingle(offering.courses),
+      lecturer: toSingle(offering.lecturer),
       course_registrations: (offering.course_registrations ?? []).map((registration) => {
-        const studentData = Array.isArray(registration.students)
-          ? registration.students[0]
-          : registration.students
+        const studentData = toSingle(registration.students)
 
         const rawResults = registration.results
           ? Array.isArray(registration.results)
