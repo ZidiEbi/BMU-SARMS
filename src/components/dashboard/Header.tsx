@@ -90,7 +90,6 @@ export default function Header({
           <div className="h-10 w-10 relative rounded-xl overflow-hidden border border-slate-200 bg-white">
             <Image
               src="/bmu-logo.png"
-              alt="BMU Logo"
               fill
               className="object-contain"
             />
